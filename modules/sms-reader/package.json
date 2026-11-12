@@ -1,0 +1,11 @@
+{
+  "name": "sms-reader",
+  "version": "1.0.0",
+  "description": "Local Expo module for reading device SMS inbox on Android",
+  "main": "index.js",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

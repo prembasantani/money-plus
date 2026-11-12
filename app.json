@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Money+",
+    "slug": "money-plus-app",
+    "version": "1.0.6",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0F17",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.moneyplus.app"
+    },
+    "android": {
+      "package": "com.moneyplus.app",
+      "versionCode": 7,
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0F17",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.READ_SMS",
+        "android.permission.RECEIVE_SMS"
+      ]
+    },
+    "androidStatusBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#0B0F17",
+      "translucent": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a925d570-2a46-424a-9c93-cc3cf1d184c3"
+      }
+    },
+    "plugins": [
+      "expo-font",
+      "expo-status-bar",
+      "expo-splash-screen"
+    ]
+  }
+}

@@ -1,0 +1,90 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      release_title:
+        description: 'Release Title / Version'
+        required: false
+        default: 'Latest Build'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Package APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 🟢 Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 📦 Install Dependencies
+        run: npm install
+
+      - name: 🧪 Run Engine Verification Tests
+        run: npm test
+
+      - name: ⚙️ Expo Prebuild (Generate Android Native Project)
+        run: npx expo prebuild --platform android --no-install
+
+      - name: 🔨 Build Release APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: 🔍 Locate & Rename APK
+        run: |
+          mkdir -p build-output
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: APK not found!"
+            exit 1
+          fi
+          echo "Found APK at: $APK_PATH"
+          cp "$APK_PATH" build-output/money-plus.apk
+          ls -lh build-output/money-plus.apk
+
+      - name: 📤 Upload APK Artifact (Download from Actions tab)
+        uses: actions/upload-artifact@v4
+        with:
+          name: money-plus-apk
+          path: build-output/money-plus.apk
+          retention-days: 14
+
+      - name: 🚀 Publish Direct Downloadable Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: latest
+          name: ${{ github.event.inputs.release_title || 'Money+ Latest APK Build' }}
+          body: |
+            ### 📱 Money+ Android APK
+            * **Build Date:** ${{ github.event.head_commit.timestamp || 'Manual Dispatch' }}
+            * **Commit:** ${{ github.sha }}
+            
+            👉 **Direct Download Link:** Tap `money-plus.apk` below to download and install immediately on your Android phone!
+          files: build-output/money-plus.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

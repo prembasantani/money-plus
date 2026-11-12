@@ -1,0 +1,638 @@
+import React, { useState, useMemo, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  StatusBar,
+  TextInput,
+  TouchableOpacity,
+  Modal,
+  Platform,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { useFinance } from '../context/FinanceContext';
+import NetWorthCard from '../components/NetWorthCard';
+import TransactionItem from '../components/TransactionItem';
+import SkeletonLoader from '../components/SkeletonLoader';
+import { confirmAction, notifyAction } from '../utils/dialogs';
+import { formatCurrency } from '../utils/formatters';
+
+export default function DashboardScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
+  const {
+    accounts,
+    transactions,
+    categories,
+    isLoading,
+    totalNetWorth,
+    monthlyInflow,
+    monthlyOutflow,
+    deleteTransaction,
+    updateTransactionComment,
+    theme,
+    themeMode,
+    toggleTheme,
+  } = useFinance();
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTxType, setSelectedTxType] = useState('ALL'); // ALL, EXPENSE, INCOME, TRANSFER
+  const [selectedAccountFilter, setSelectedAccountFilter] = useState(null);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
+  const [onlyWithComments, setOnlyWithComments] = useState(false);
+  const [displayLimit, setDisplayLimit] = useState(30);
+
+  // Comment Modal state
+  const [commentModalTx, setCommentModalTx] = useState(null);
+  const [commentInput, setCommentInput] = useState('');
+
+  const categoryMap = useMemo(() => {
+    const map = {};
+    categories.forEach((c) => {
+      map[c.id] = c;
+    });
+    return map;
+  }, [categories]);
+
+  const accountMap = useMemo(() => {
+    const map = {};
+    accounts.forEach((a) => {
+      map[a.id] = a;
+    });
+    return map;
+  }, [accounts]);
+
+  // Filter transactions
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((tx) => {
+      // 1. Account filter (set when tapping account badge)
+      if (selectedAccountFilter && tx.accountId !== selectedAccountFilter) {
+        return false;
+      }
+
+      // 2. Category filter (set when tapping category icon)
+      if (selectedCategoryFilter && tx.categoryId !== selectedCategoryFilter) {
+        return false;
+      }
+
+      // 3. Comments only filter
+      if (onlyWithComments && (!tx.comment || !tx.comment.trim())) {
+        return false;
+      }
+
+      // 4. Transaction type filter
+      if (selectedTxType === 'EXPENSE' && (tx.type !== 'expense' || tx.categoryId === 'cat_transfer')) return false;
+      if (selectedTxType === 'INCOME' && (tx.type !== 'income' || tx.categoryId === 'cat_transfer')) return false;
+      if (selectedTxType === 'TRANSFER' && tx.categoryId !== 'cat_transfer') return false;
+
+      // 5. Search query (matches counterparty, note, comment, or account name)
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchCp = (tx.counterparty || '').toLowerCase().includes(q);
+        const matchNote = (tx.note || '').toLowerCase().includes(q);
+        const matchComment = (tx.comment || '').toLowerCase().includes(q);
+        const matchAcc = (accountMap[tx.accountId]?.name || '').toLowerCase().includes(q);
+        return matchCp || matchNote || matchComment || matchAcc;
+      }
+
+      return true;
+    });
+  }, [
+    transactions,
+    selectedAccountFilter,
+    selectedCategoryFilter,
+    onlyWithComments,
+    selectedTxType,
+    searchQuery,
+    accountMap,
+  ]);
+
+  const handleDeleteTransaction = useCallback(
+    (id) => {
+      confirmAction(
+        'Delete Transaction',
+        'Are you sure you want to delete this record? Account balance will be reverted.',
+        async () => {
+          await deleteTransaction(id);
+          notifyAction('Transaction Deleted', 'Reverted account balance and removed from ledger.', {
+            type: 'info',
+            icon: 'trash-outline',
+          });
+        }
+      );
+    },
+    [deleteTransaction]
+  );
+
+  const handleOpenCommentModal = (tx) => {
+    setCommentModalTx(tx);
+    setCommentInput(tx.comment || '');
+  };
+
+  const handleSaveComment = async () => {
+    if (!commentModalTx) return;
+    await updateTransactionComment(commentModalTx.id, commentInput.trim());
+    notifyAction('Comment Saved', 'Custom description updated on transaction.', { type: 'success' });
+    setCommentModalTx(null);
+  };
+
+  return (
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={theme.background} />
+      <ScrollView
+        style={[styles.container, { backgroundColor: theme.background }]}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* App Bar / Header */}
+        <View style={styles.header}>
+          <View style={styles.brandContainer}>
+            <View style={[styles.brandIcon, { backgroundColor: theme.primaryLight }]}>
+              <Ionicons name="wallet" size={20} color={theme.primary} />
+            </View>
+            <View>
+              <Text style={[styles.appName, { color: theme.text }]}>Money+</Text>
+              <Text style={[styles.tagline, { color: theme.textSecondary }]}>High-Performance Ledger Tracker</Text>
+            </View>
+          </View>
+
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.headerBtn, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}
+              onPress={toggleTheme}
+              activeOpacity={0.7}
+              accessibilityLabel="Toggle Theme"
+            >
+              <Ionicons
+                name={themeMode === 'dark' ? 'sunny-outline' : 'moon-outline'}
+                size={18}
+                color={themeMode === 'dark' ? '#F59E0B' : '#6366F1'}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.headerBtn, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}
+              onPress={() => navigation.navigate('Settings')}
+              activeOpacity={0.7}
+              accessibilityLabel="Open settings"
+            >
+              <Ionicons name="settings-outline" size={18} color={theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Net Worth Card (Balance hidden by default as requested) */}
+        <NetWorthCard
+          totalNetWorth={totalNetWorth}
+          monthlyInflow={monthlyInflow}
+          monthlyOutflow={monthlyOutflow}
+          onSyncPress={() => navigation.navigate('Sync')}
+          onAdjustPress={() => navigation.navigate('Adjust', { mode: 'OVERRIDE' })}
+        />
+
+        {/* Transaction History Section */}
+        <View style={[styles.sectionHeader, { marginTop: 20 }]}>
+          <View>
+            <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>TRANSACTION HISTORY</Text>
+            <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
+              Tap account or category on any item to filter
+            </Text>
+          </View>
+          <Text style={[styles.sectionCount, { color: theme.accent }]}>
+            {filteredTransactions.length} Records
+          </Text>
+        </View>
+
+        {/* Active Filter Chips (if an account or category is selected) */}
+        {(selectedAccountFilter || selectedCategoryFilter || onlyWithComments) && (
+          <View style={styles.activeFiltersRow}>
+            {selectedAccountFilter && (
+              <TouchableOpacity
+                style={[styles.activeFilterChip, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}
+                onPress={() => setSelectedAccountFilter(null)}
+              >
+                <Text style={[styles.activeFilterText, { color: theme.primary }]}>
+                  Account: {accountMap[selectedAccountFilter]?.name || 'Account'} ✕
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {selectedCategoryFilter && (
+              <TouchableOpacity
+                style={[styles.activeFilterChip, { backgroundColor: 'rgba(236, 72, 153, 0.15)', borderColor: '#EC4899' }]}
+                onPress={() => setSelectedCategoryFilter(null)}
+              >
+                <Text style={[styles.activeFilterText, { color: '#EC4899' }]}>
+                  Category: {categoryMap[selectedCategoryFilter]?.name || 'Category'} ✕
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {onlyWithComments && (
+              <TouchableOpacity
+                style={[styles.activeFilterChip, { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: '#F59E0B' }]}
+                onPress={() => setOnlyWithComments(false)}
+              >
+                <Text style={[styles.activeFilterText, { color: '#F59E0B' }]}>
+                  With Comments Only ✕
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.clearAllFiltersBtn}
+              onPress={() => {
+                setSelectedAccountFilter(null);
+                setSelectedCategoryFilter(null);
+                setOnlyWithComments(false);
+              }}
+            >
+              <Text style={[styles.clearAllFiltersText, { color: theme.textMuted }]}>Clear All</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Search Bar */}
+        <View style={[styles.searchBar, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+          <Ionicons name="search-outline" size={16} color={theme.textMuted} style={{ marginRight: 8 }} />
+          <TextInput
+            style={[styles.searchInput, { color: theme.text }]}
+            placeholder="Search merchant, comments, notes, account..."
+            placeholderTextColor={theme.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {/* Transaction Type & Comments Filter Pills */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterPillsRow}>
+          {[
+            { id: 'ALL', label: 'All' },
+            { id: 'EXPENSE', label: 'Expenses (-)' },
+            { id: 'INCOME', label: 'Income (+)' },
+            { id: 'TRANSFER', label: 'Transfers (🔄)' },
+          ].map((f) => {
+            const isActive = selectedTxType === f.id;
+            return (
+              <TouchableOpacity
+                key={f.id}
+                style={[
+                  styles.filterPill,
+                  {
+                    backgroundColor: isActive ? theme.primary : theme.card,
+                    borderColor: isActive ? theme.primary : theme.cardBorder,
+                  },
+                ]}
+                onPress={() => setSelectedTxType(f.id)}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    { color: isActive ? '#FFFFFF' : theme.textSecondary, fontWeight: isActive ? '700' : '600' },
+                  ]}
+                >
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+
+          {/* With Comments Quick Filter */}
+          <TouchableOpacity
+            style={[
+              styles.filterPill,
+              {
+                backgroundColor: onlyWithComments ? '#F59E0B' : theme.card,
+                borderColor: onlyWithComments ? '#F59E0B' : theme.cardBorder,
+              },
+            ]}
+            onPress={() => setOnlyWithComments(!onlyWithComments)}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.filterPillText,
+                { color: onlyWithComments ? '#FFFFFF' : theme.textSecondary, fontWeight: onlyWithComments ? '700' : '600' },
+              ]}
+            >
+              💬 Comments
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Transactions List */}
+        {isLoading ? (
+          <SkeletonLoader count={4} />
+        ) : filteredTransactions.length === 0 ? (
+          <View style={[styles.emptyContainer, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+            <Ionicons name="receipt-outline" size={38} color={theme.textMuted} />
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>No Transactions Found</Text>
+            <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
+              {searchQuery || selectedAccountFilter || selectedCategoryFilter
+                ? 'Try clearing active filters or search terms.'
+                : 'Tap "Sync SMS Logs" above to import your bank transactions!'}
+            </Text>
+          </View>
+        ) : (
+          filteredTransactions.slice(0, displayLimit).map((tx) => (
+            <TransactionItem
+              key={tx.id}
+              transaction={tx}
+              category={categoryMap[tx.categoryId]}
+              account={accountMap[tx.accountId]}
+              onDelete={handleDeleteTransaction}
+              onEditComment={handleOpenCommentModal}
+              onSelectAccount={(accId) => setSelectedAccountFilter(accId)}
+              onSelectCategory={(catId) => setSelectedCategoryFilter(catId)}
+            />
+          ))
+        )}
+
+        {/* Load More Button if over displayLimit */}
+        {filteredTransactions.length > displayLimit && (
+          <TouchableOpacity
+            style={[styles.loadMoreBtn, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}
+            onPress={() => setDisplayLimit((prev) => prev + 30)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.loadMoreText, { color: theme.accent }]}>
+              Load More ({filteredTransactions.length - displayLimit} remaining)
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
+
+      {/* Edit Comment Modal */}
+      {commentModalTx && (
+        <Modal visible={!!commentModalTx} transparent animationType="fade" onRequestClose={() => setCommentModalTx(null)}>
+          <View style={styles.dialogOverlay}>
+            <View style={[styles.dialogBox, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+              <View style={styles.dialogHeader}>
+                <Ionicons name="chatbubble-ellipses" size={20} color={theme.primary} style={{ marginRight: 8 }} />
+                <Text style={[styles.dialogTitle, { color: theme.text }]}>Transaction Comment</Text>
+              </View>
+              <Text style={[styles.dialogSub, { color: theme.textSecondary }]}>
+                {commentModalTx.counterparty} • {formatCurrency(commentModalTx.amount)}
+              </Text>
+
+              <TextInput
+                style={[styles.dialogInput, { backgroundColor: theme.cardSubtle, borderColor: theme.border, color: theme.text }]}
+                value={commentInput}
+                onChangeText={setCommentInput}
+                placeholder="Add a custom note or description (e.g. Dinner with friends)..."
+                placeholderTextColor={theme.textMuted}
+                multiline
+                numberOfLines={3}
+                autoFocus
+              />
+
+              <View style={styles.dialogBtnRow}>
+                <TouchableOpacity style={[styles.dialogCancelBtn, { borderColor: theme.border }]} onPress={() => setCommentModalTx(null)}>
+                  <Text style={[styles.dialogCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.dialogConfirmBtn, { backgroundColor: theme.primary }]} onPress={handleSaveComment}>
+                  <Text style={styles.dialogConfirmText}>Save Comment</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  container: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 30,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  brandContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  brandIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  appName: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  tagline: {
+    fontSize: 10.5,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  sectionSubtitle: {
+    fontSize: 10.5,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  sectionCount: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  activeFiltersRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  activeFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  activeFilterText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  clearAllFiltersBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  clearAllFiltersText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginBottom: 12,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    padding: 0,
+  },
+  filterPillsRow: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  filterPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterPillText: {
+    fontSize: 11.5,
+  },
+  emptyContainer: {
+    marginHorizontal: 20,
+    padding: 32,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: 10,
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 17,
+  },
+  loadMoreBtn: {
+    marginHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  loadMoreText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  dialogOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  dialogBox: {
+    width: '100%',
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+  },
+  dialogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dialogTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  dialogSub: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
+    marginBottom: 12,
+  },
+  dialogInput: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    fontSize: 13,
+    textAlignVertical: 'top',
+    minHeight: 70,
+  },
+  dialogBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 14,
+  },
+  dialogCancelBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  dialogCancelText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+  },
+  dialogConfirmBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  dialogConfirmText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+});
