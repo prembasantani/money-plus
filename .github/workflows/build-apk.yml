@@ -54,16 +54,36 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      - name: 🔍 Locate & Rename APK
+      - name: 🔑 Align & Sign APK (v1 + v2 + v3 schemes)
         run: |
           mkdir -p build-output
-          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          if [ -z "$APK_PATH" ]; then
-            echo "Error: APK not found!"
+          RAW_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$RAW_APK" ]; then
+            echo "Error: Release APK not found!"
             exit 1
           fi
-          echo "Found APK at: $APK_PATH"
-          cp "$APK_PATH" build-output/money-plus.apk
+          echo "Found raw APK at: $RAW_APK"
+
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          echo "Using Android Build Tools: $BUILD_TOOLS"
+
+          # 1. Zipalign to 4-byte boundaries
+          "$BUILD_TOOLS/zipalign" -p -f 4 "$RAW_APK" build-output/aligned.apk
+
+          # 2. Sign with permanent release keystore
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks android-release.keystore \
+            --ks-pass pass:moneyplus123 \
+            --ks-key-alias moneyplus \
+            --key-pass pass:moneyplus123 \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out build-output/money-plus.apk \
+            build-output/aligned.apk
+
+          # 3. Verify signature
+          "$BUILD_TOOLS/apksigner" verify --verbose build-output/money-plus.apk
           ls -lh build-output/money-plus.apk
 
       - name: 📤 Upload APK Artifact (Download from Actions tab)
