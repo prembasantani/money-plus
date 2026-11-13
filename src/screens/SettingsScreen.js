@@ -100,6 +100,21 @@ export default function SettingsScreen({ navigation }) {
     );
   };
 
+  return (
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
+      <ScrollView
+        style={[styles.container, { backgroundColor: theme.background }]}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Settings & Data</Text>
+          <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
+            Personalize Money+ and manage your local data
+          </Text>
+        </View>
+
         {/* 1. Accounts Tab Navigation Shortcut */}
         <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, borderTopWidth: 3, borderTopColor: theme.primary }]}>
           <View style={styles.sectionTitleRow}>
