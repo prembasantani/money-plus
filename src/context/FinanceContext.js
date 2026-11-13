@@ -150,21 +150,25 @@ export function FinanceProvider({ children }) {
       fingerprint,
     };
 
-    // Update account balance
-    const updatedAccounts = accounts.map((acc) => {
-      if (acc.id === newTx.accountId) {
-        let newBalance = acc.balance;
-        if (newTx.type === 'expense') {
-          newBalance -= amount;
-        } else if (newTx.type === 'income') {
-          newBalance += amount;
+    const isReminder = !!newTx.isReminder;
+    let updatedAccounts = accounts;
+    if (!isReminder) {
+      updatedAccounts = accounts.map((acc) => {
+        if (acc.id === newTx.accountId) {
+          let newBalance = acc.balance;
+          if (newTx.type === 'expense') {
+            newBalance -= amount;
+          } else if (newTx.type === 'income') {
+            newBalance += amount;
+          }
+          return { ...acc, balance: parseFloat(newBalance.toFixed(2)) };
         }
-        return { ...acc, balance: parseFloat(newBalance.toFixed(2)) };
-      }
-      return acc;
-    });
+        return acc;
+      });
+    }
 
     const updatedTxList = [newTx, ...transactions];
+    updatedTxList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     await saveState(updatedAccounts, updatedTxList);
     return newTx;
   };
@@ -173,7 +177,7 @@ export function FinanceProvider({ children }) {
    * Batch add transactions from SMS Sync with automatic account creation
    */
   const batchAddTransactions = async (candidates, newAccountsToCreate = []) => {
-    const toImport = candidates.filter((c) => c.status === 'ready');
+    const toImport = candidates.filter((c) => c.status === 'ready' || c.status === 'accepted_duplicate');
     if (toImport.length === 0 && (!newAccountsToCreate || newAccountsToCreate.length === 0)) return 0;
 
     // 1. Merge any newly discovered accounts into the accounts list
@@ -213,7 +217,10 @@ export function FinanceProvider({ children }) {
     const formattedList = toImport.map((c) => {
       const amount = parseFloat(c.amount);
       const accId = c.accountId;
-      if (accountBalances[accId] !== undefined) {
+      const isReminder = !!c.isReminder;
+
+      // Only alter account balances if it's NOT a reminder!
+      if (!isReminder && accountBalances[accId] !== undefined) {
         if (c.type === 'expense') {
           accountBalances[accId] -= amount;
         } else if (c.type === 'income') {
@@ -230,6 +237,8 @@ export function FinanceProvider({ children }) {
         date: c.date,
         note: c.note || 'Synced from SMS / Notification',
         fingerprint: c.fingerprint,
+        isReminder,
+        itemKind: isReminder ? 'reminder' : 'transaction',
       };
     });
 
@@ -239,6 +248,8 @@ export function FinanceProvider({ children }) {
     }));
 
     const updatedTxList = [...formattedList, ...transactions];
+    // Always maintain descending chronological sorting (latest at the top)
+    updatedTxList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     await saveState(updatedAccounts, updatedTxList);
     return toImport.length;
   };
@@ -481,6 +492,23 @@ export function FinanceProvider({ children }) {
       await AsyncStorage.setItem(STORAGE_KEYS.BLACKLISTED, JSON.stringify(updated));
     } catch (e) {
       console.warn('Failed to save blacklisted fingerprint', e);
+    }
+  };
+
+  /**
+   * Remove fingerprint or raw text from persistent blacklist (un-ignore)
+   */
+  const unblacklistFingerprint = async (fingerprint, rawText = null) => {
+    const raw = rawText ? rawText.trim() : null;
+    const norm = rawText ? normalizeSmsText(rawText) : null;
+    const updated = blacklistedFingerprints.filter(
+      (b) => b !== fingerprint && b !== raw && b !== norm
+    );
+    setBlacklistedFingerprints(updated);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.BLACKLISTED, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to unblacklist fingerprint', e);
     }
   };
 
@@ -787,6 +815,7 @@ export function FinanceProvider({ children }) {
   let monthlyOutflow = 0;
 
   transactions.forEach((tx) => {
+    if (tx.isReminder) return; // Reminders do not alter monthly inflow/outflow
     const txDate = new Date(tx.date);
     if (txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear) {
       if (tx.type === 'income') {
@@ -829,6 +858,7 @@ export function FinanceProvider({ children }) {
         mergeAccounts,
         blacklistedFingerprints,
         blacklistFingerprint,
+        unblacklistFingerprint,
         ignoredTransactions,
         ignoreTransaction,
         restoreIgnoredTransaction,

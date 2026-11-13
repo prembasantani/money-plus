@@ -170,7 +170,7 @@ console.log(`  ✅ ICICI debited transaction correctly parsed as EXPENSE: ₹${p
 const kotakSms = 'Sent Rs.2.00 from Kotak Bank A/c X6574 to Youtube on 08-11-26. UPI Ref 631245646317. Not done by you? Tap https://kotak.bank.in/KBANKT/Fraud';
 const parsedKotak = parseSingleMessage(kotakSms, []);
 
-if (!parsedKotak || parsedKotak.type !== 'expense' || parsedKotak.counterparty !== 'Youtube' || parsedKotak.categoryId !== 'cat_entertainment') {
+if (!parsedKotak || parsedKotak.type !== 'expense' || !/youtube/i.test(parsedKotak.counterparty) || parsedKotak.categoryId !== 'cat_entertainment') {
   console.error('❌ Failed: Kotak SMS parsed incorrectly!', parsedKotak);
   process.exit(1);
 }
@@ -408,4 +408,89 @@ if (parsedRblUpi.accountNumber === '**4560') {
 }
 console.log('  ✅ Verified: x1074 resolved to master account **1074 (not hijacked by payee RBL Bank or amount 4560).');
 
-console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering & Deduplication Unit Tests Passed Successfully!\n');
+// --- 22. Testing Policybazaar / PNB MetLife Future Debit Reminder ---
+console.log('\n--- 22. Testing Policybazaar / PNB MetLife Future Debit Reminder ---');
+const policybazaarSms = 'Prem Kishan Basantani payment of Rs.950 for your PNB Metlife policy no. 24028200 is due on 2026-11-15. The amount will be debited from your credit card/bank account. Please maintain sufficient balance. Team Policybazaar';
+const parsedPb = parseSingleMessage(policybazaarSms, DEFAULT_ACCOUNTS);
+
+if (!parsedPb) {
+  console.error('❌ Failed: Policybazaar SMS failed to parse as reminder!');
+  process.exit(1);
+}
+if (parsedPb.amount !== 950) {
+  console.error(`❌ Failed: Expected amount 950, got ${parsedPb.amount}`);
+  process.exit(1);
+}
+if (!parsedPb.isReminder) {
+  console.error('❌ Failed: Expected isReminder to be true for future debit notice!');
+  process.exit(1);
+}
+if (parsedPb.type === 'income') {
+  console.error('❌ Failed: Future debit reminder must NOT be parsed as income (+) credit card payment!');
+  process.exit(1);
+}
+if (parsedPb.discoveredAccount) {
+  console.error('❌ Failed: PNB MetLife must NOT create a fake Punjab National Bank credit card account!', parsedPb.discoveredAccount);
+  process.exit(1);
+}
+if (!parsedPb.counterparty.includes('PNB MetLife') && !parsedPb.counterparty.includes('Policybazaar')) {
+  console.error(`❌ Failed: Expected counterparty to be Policybazaar / PNB MetLife, got "${parsedPb.counterparty}"`);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: PNB MetLife correctly tagged as REMINDER (isReminder=true, zero balance impact), counterparty: "${parsedPb.counterparty}", no ghost bank created.`);
+
+// --- 23. Testing YouTube UPI AutoPay Mandate Setup ---
+console.log('\n--- 23. Testing YouTube UPI AutoPay Mandate Setup ---');
+const youtubeMandateSms = 'Your ASPRESENTED UPI AutoPay Mandate from 11/11/2026 to 31/12/2036 is successfully created towards Youtube for Rs 299.00';
+const parsedYt = parseSingleMessage(youtubeMandateSms, DEFAULT_ACCOUNTS);
+
+if (!parsedYt) {
+  console.error('❌ Failed: YouTube mandate failed to parse!');
+  process.exit(1);
+}
+if (!parsedYt.isReminder) {
+  console.error('❌ Failed: AutoPay Mandate creation must be tagged as isReminder=true!');
+  process.exit(1);
+}
+if (parsedYt.counterparty !== 'YouTube') {
+  console.error(`❌ Failed: Expected clean counterparty "YouTube", got "${parsedYt.counterparty}"`);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: YouTube mandate correctly recognized as REMINDER (isReminder=true), counterparty: "${parsedYt.counterparty}".`);
+
+// --- 24. Testing Ignored / Previously Deleted Section Exclusion from Sync ---
+console.log('\n--- 24. Testing Ignored / Previously Deleted Section Exclusion ---');
+const candidateIgnored = {
+  id: 'tx_old_dismissed',
+  amount: 250,
+  type: 'expense',
+  accountId: 'acc_primary',
+  counterparty: 'Starbucks Coffee',
+  date: '2026-11-10T08:00:00.000Z',
+  fingerprint: 'fp_starbucks_250_test',
+  rawText: 'Sent Rs.250 from A/C **1234 to Starbucks',
+  status: 'ready',
+};
+const blacklistedList = ['fp_starbucks_250_test'];
+const evaluatedIgnored = runDeduplicationEngine([candidateIgnored], [], blacklistedList);
+
+if (evaluatedIgnored.length !== 0) {
+  console.error('❌ Failed: Blacklisted candidate must be completely excluded from sync ready queue, got:', evaluatedIgnored);
+  process.exit(1);
+}
+console.log('  ✅ Verified: Blacklisted item successfully excluded from sync ready items (stored and managed via Ignored / Previously Deleted section).');
+
+// --- 25. Testing Strict Descending Chronological Sorting (Latest First) ---
+console.log('\n--- 25. Testing Strict Descending Chronological Sorting ---');
+const candOld = { id: 'c1', amount: 100, type: 'expense', accountId: 'acc_primary', counterparty: 'Store A', date: '2026-11-01T10:00:00.000Z' };
+const candNew = { id: 'c2', amount: 200, type: 'expense', accountId: 'acc_primary', counterparty: 'Store B', date: '2026-11-12T15:30:00.000Z' };
+const candMid = { id: 'c3', amount: 300, type: 'expense', accountId: 'acc_primary', counterparty: 'Store C', date: '2026-11-08T12:00:00.000Z' };
+
+const sortedEval = runDeduplicationEngine([candOld, candNew, candMid], []);
+if (sortedEval[0].id !== 'c2' || sortedEval[1].id !== 'c3' || sortedEval[2].id !== 'c1') {
+  console.error('❌ Failed: Candidates were not sorted strictly descending by date!', sortedEval.map((s) => s.date));
+  process.exit(1);
+}
+console.log('  ✅ Verified: Candidates strictly sorted descending (newest on top): 12 Nov -> 8 Nov -> 1 Nov.');
+
+console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering, Reminders & Sorting Unit Tests Passed Successfully!\n');

@@ -174,6 +174,9 @@ export function runDeduplicationEngine(parsedCandidates, existingLedger = [], bl
     acceptedInBatch.push(cleanCandidate);
   }
 
+  // Strict descending chronological sorting: newest at the top
+  results.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
   return linkTransferPairs(results);
 }
 

@@ -12,7 +12,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFinance } from '../context/FinanceContext';
 import { formatCurrency } from '../utils/formatters';
 import { confirmAction, notifyAction } from '../utils/dialogs';
-import AccountsManagerModal from '../components/AccountsManagerModal';
 import IgnoredTransactionsModal from '../components/IgnoredTransactionsModal';
 
 export default function SettingsScreen({ navigation }) {
@@ -24,8 +23,6 @@ export default function SettingsScreen({ navigation }) {
     importBackupJson,
     resetToDemoData,
     clearLedgerData,
-    addAccount,
-    deleteAccount,
     ignoredTransactions,
     theme,
     themeMode,
@@ -36,15 +33,7 @@ export default function SettingsScreen({ navigation }) {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportedString, setExportedString] = useState('');
   const [showRestoreBox, setShowRestoreBox] = useState(false);
-  const [showAccountsManager, setShowAccountsManager] = useState(false);
   const [showIgnoredModal, setShowIgnoredModal] = useState(false);
-
-  // Add Account form states
-  const [showAddAccount, setShowAddAccount] = useState(false);
-  const [newAccName, setNewAccName] = useState('');
-  const [newAccNumber, setNewAccNumber] = useState('');
-  const [newAccBalance, setNewAccBalance] = useState('');
-  const [newAccCategory, setNewAccCategory] = useState('debit'); // 'debit' | 'credit' | 'cash' | 'wallet'
 
   const handleBackupLedger = () => {
     const json = exportBackupJson();
@@ -111,263 +100,30 @@ export default function SettingsScreen({ navigation }) {
     );
   };
 
-  const handleDeleteAccount = (accId, accName) => {
-    confirmAction(
-      'Delete Account',
-      `Are you sure you want to remove ${accName}? Any associated transactions will also be removed.`,
-      async () => {
-        await deleteAccount(accId);
-        notifyAction('Account Deleted', `${accName} has been removed.`, { type: 'info' });
-      },
-      { type: 'danger', confirmText: 'Delete' }
-    );
-  };
-
-  const handleSaveAccount = async () => {
-    if (!newAccName.trim()) {
-      notifyAction('Missing Name', 'Please enter a name for the account (e.g. State Bank of India, RBL Credit Card).', { type: 'warning' });
-      return;
-    }
-
-    const startingBal = parseFloat(newAccBalance.trim()) || 0;
-    const defaultType =
-      newAccCategory === 'credit'
-        ? 'Credit Card'
-        : newAccCategory === 'cash'
-        ? 'Cash'
-        : newAccCategory === 'wallet'
-        ? 'Digital Wallet'
-        : 'Bank Account';
-
-    await addAccount({
-      name: newAccName.trim(),
-      number: newAccNumber.trim() || (newAccCategory === 'cash' ? 'Cash' : '**0000'),
-      type: defaultType,
-      ledgerCategory: newAccCategory,
-      balance: startingBal,
-    });
-
-    setNewAccName('');
-    setNewAccNumber('');
-    setNewAccBalance('');
-    setNewAccCategory('debit');
-    setShowAddAccount(false);
-    notifyAction('Account Added', `Account "${newAccName.trim()}" created successfully!`, { type: 'success' });
-  };
-
-  return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
-      <ScrollView
-        style={[styles.container, { backgroundColor: theme.background }]}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Settings & Accounts</Text>
-          <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
-            100% offline device storage, account manager, and theme controls
-          </Text>
-        </View>
-
-        {/* 1. Manage Accounts & Add Bank Card (KEPT AT THE TOP AS REQUESTED) */}
+        {/* 1. Accounts Tab Navigation Shortcut */}
         <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, borderTopWidth: 3, borderTopColor: theme.primary }]}>
           <View style={styles.sectionTitleRow}>
             <View style={[styles.titleIconBadge, { backgroundColor: 'rgba(2, 132, 199, 0.2)' }]}>
-              <Ionicons name="wallet" size={18} color="#0284C7" />
+              <Ionicons name="wallet-outline" size={18} color="#0284C7" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Manage Accounts & Ledgers</Text>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Accounts & Ledgers</Text>
               <Text style={[styles.sectionSub, { color: theme.textSecondary }]}>
-                Add Debit cards, Credit cards, Wallets & Cash. SMS sync links to these automatically.
+                {accounts.length} Accounts Active (Banks, Cards, Wallets & Cash)
               </Text>
             </View>
-          </View>
-
-          {/* Dedicated Club / Merge / Rename Manager Modal Button */}
-          <TouchableOpacity
-            style={[
-              styles.primaryActionBtn,
-              { backgroundColor: theme.primary, marginBottom: 14 },
-            ]}
-            onPress={() => setShowAccountsManager(true)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="git-merge-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-            <Text style={styles.primaryActionBtnText}>Manage, Rename & Club Accounts</Text>
-          </TouchableOpacity>
-
-          {/* Accounts List */}
-          {accounts.map((acc) => {
-            const cat = acc.ledgerCategory || 'debit';
-            const catColor =
-              cat === 'credit'
-                ? '#E11D48'
-                : cat === 'cash'
-                ? '#10B981'
-                : cat === 'wallet'
-                ? '#06B6D4'
-                : '#3B82F6';
-            const catLabel =
-              cat === 'credit'
-                ? 'Credit Card'
-                : cat === 'cash'
-                ? 'Cash'
-                : cat === 'wallet'
-                ? 'Wallet'
-                : 'Debit A/C';
-
-            return (
-              <View
-                key={acc.id}
-                style={[
-                  styles.accountManageItem,
-                  {
-                    backgroundColor: theme.cardSubtle,
-                    borderColor: theme.border,
-                    borderLeftWidth: 5,
-                    borderLeftColor: acc.color || catColor,
-                  },
-                ]}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.accountManageName, { color: theme.text }]}>{acc.name}</Text>
-                  <View style={styles.accMetaRow}>
-                    <Text style={[styles.accountManageSub, { color: theme.textSecondary }]}>
-                      {acc.number} • {formatCurrency(acc.balance)}
-                    </Text>
-                    <View style={[styles.accCatBadge, { backgroundColor: `${catColor}20` }]}>
-                      <Text style={[styles.accCatBadgeText, { color: catColor }]}>{catLabel}</Text>
-                    </View>
-                  </View>
-                </View>
-
-                {accounts.length > 1 && (
-                  <TouchableOpacity
-                    style={[styles.accountDeleteBtn, { backgroundColor: theme.dangerLight }]}
-                    onPress={() => handleDeleteAccount(acc.id, acc.name)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    activeOpacity={0.7}
-                    accessibilityLabel={`Delete account ${acc.name}`}
-                  >
-                    <Ionicons name="trash-outline" size={16} color={theme.danger} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            );
-          })}
-
-          {/* Add Account Inline Form */}
-          {showAddAccount ? (
-            <View style={[styles.addAccountForm, { backgroundColor: theme.cardSubtle, borderColor: theme.primary }]}>
-              {/* Account Category Selector */}
-              <Text style={[styles.formLabel, { color: theme.textSecondary }]}>ACCOUNT CATEGORY / TYPE</Text>
-              <View style={styles.catPillGrid}>
-                {[
-                  { id: 'debit', label: 'Debit Account', icon: 'business-outline', color: '#3B82F6' },
-                  { id: 'credit', label: 'Credit Card', icon: 'card-outline', color: '#E11D48' },
-                  { id: 'cash', label: 'Cash in Hand', icon: 'cash-outline', color: '#10B981' },
-                  { id: 'wallet', label: 'Digital Wallet', icon: 'wallet-outline', color: '#06B6D4' },
-                ].map((c) => {
-                  const isSelected = newAccCategory === c.id;
-                  return (
-                    <TouchableOpacity
-                      key={c.id}
-                      style={[
-                        styles.catPillBtn,
-                        {
-                          backgroundColor: isSelected ? `${c.color}20` : theme.card,
-                          borderColor: isSelected ? c.color : theme.border,
-                          borderWidth: isSelected ? 2 : 1,
-                        },
-                      ]}
-                      onPress={() => setNewAccCategory(c.id)}
-                      activeOpacity={0.75}
-                    >
-                      <Ionicons
-                        name={c.icon}
-                        size={14}
-                        color={isSelected ? c.color : theme.textSecondary}
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text
-                        style={[
-                          styles.catPillText,
-                          { color: isSelected ? c.color : theme.textSecondary },
-                          isSelected && { fontWeight: '700' },
-                        ]}
-                      >
-                        {c.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <Text style={[styles.formLabel, { color: theme.textSecondary }]}>Account / Bank Name</Text>
-              <TextInput
-                style={[styles.textInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                placeholder={
-                  newAccCategory === 'credit'
-                    ? 'e.g. RBL Bank Credit Card, ICICI Coral Card'
-                    : newAccCategory === 'cash'
-                    ? 'e.g. Physical Cash, Wallet Pocket'
-                    : 'e.g. State Bank of India, Axis Bank'
-                }
-                placeholderTextColor={theme.textMuted}
-                value={newAccName}
-                onChangeText={setNewAccName}
-              />
-
-              <Text style={[styles.formLabel, { color: theme.textSecondary }]}>Last 4 Digits / Identifier</Text>
-              <TextInput
-                style={[styles.textInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                placeholder="e.g. **4723 or XX6001"
-                placeholderTextColor={theme.textMuted}
-                value={newAccNumber}
-                onChangeText={setNewAccNumber}
-              />
-
-              <Text style={[styles.formLabel, { color: theme.textSecondary }]}>Starting Balance (₹)</Text>
-              <TextInput
-                style={[styles.textInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                placeholder="0.00"
-                placeholderTextColor={theme.textMuted}
-                keyboardType="numeric"
-                value={newAccBalance}
-                onChangeText={setNewAccBalance}
-              />
-
-              <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-                <TouchableOpacity
-                  style={[styles.actionBtnPrimary, { flex: 1, backgroundColor: theme.primary }]}
-                  onPress={handleSaveAccount}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.actionBtnTextPrimary}>Save Account</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionBtnSecondary, { flex: 1, backgroundColor: theme.card, borderColor: theme.border }]}
-                  onPress={() => setShowAddAccount(false)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.actionBtnTextSecondary, { color: theme.textSecondary }]}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
             <TouchableOpacity
-              style={[
-                styles.addBankBtn,
-                { backgroundColor: theme.primaryLight, borderColor: theme.primary },
-              ]}
-              onPress={() => setShowAddAccount(true)}
-              activeOpacity={0.8}
+              style={[styles.accountsShortcutBtn, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}
+              onPress={() => navigation.navigate('Accounts')}
+              activeOpacity={0.75}
             >
-              <Ionicons name="add-circle" size={18} color={theme.accent} style={{ marginRight: 8 }} />
-              <Text style={[styles.addBankBtnText, { color: theme.accent }]}>+ Add New Account / Card</Text>
+              <Text style={[styles.accountsShortcutBtnText, { color: theme.accent }]}>View Tab</Text>
+              <Ionicons name="arrow-forward" size={13} color={theme.accent} style={{ marginLeft: 3 }} />
             </TouchableOpacity>
-          )}
+          </View>
+          <Text style={[styles.sectionDescription, { color: theme.textSecondary, marginTop: 6 }]}>
+            All account management, renaming, clubbing/merging, adding and deletions are centralized in the dedicated Accounts tab.
+          </Text>
         </View>
 
         {/* 2. Theme Mode Selector Card */}
@@ -577,12 +333,6 @@ export default function SettingsScreen({ navigation }) {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Accounts & Ledgers Manager Modal */}
-      <AccountsManagerModal
-        visible={showAccountsManager}
-        onClose={() => setShowAccountsManager(false)}
-      />
-
       {/* Ignored Transactions Manager Modal */}
       <IgnoredTransactionsModal
         visible={showIgnoredModal}
@@ -637,6 +387,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
     lineHeight: 16,
+  },
+  accountsShortcutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginLeft: 8,
+  },
+  accountsShortcutBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
   },
   restoreHeaderRow: {
     flexDirection: 'row',

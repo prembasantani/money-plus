@@ -11,41 +11,62 @@ function SyncPreviewItem({
   onDismiss,
   onSetType,
   onAcceptDuplicate,
+  onUndoDuplicate,
+  onRestoreIgnored,
+  onToggleReminder,
   onUpdateComment,
 }) {
   const { theme } = useFinance();
   const [expanded, setExpanded] = useState(false);
 
   const isReady = item.status === 'ready';
+  const isAcceptedDuplicate = item.status === 'accepted_duplicate';
   const isDuplicate = item.status === 'duplicate';
+  const isIgnored = item.status === 'ignored';
+  const isReminder = !!item.isReminder;
 
-  const badgeBg = isReady
-    ? theme.successLight
-    : isDuplicate
-    ? 'rgba(245, 158, 11, 0.15)'
-    : theme.cardSubtle;
+  let badgeBg = theme.cardSubtle;
+  let badgeColor = theme.textSecondary;
+  let badgeIcon = 'information-circle-outline';
+  let badgeText = 'Already in Ledger';
 
-  const badgeColor = isReady
-    ? theme.success
-    : isDuplicate
-    ? '#F59E0B'
-    : theme.textSecondary;
-
-  const badgeIcon = isReady
-    ? 'checkmark-circle-outline'
-    : isDuplicate
-    ? 'alert-circle-outline'
-    : 'information-circle-outline';
-
-  const badgeText = isReady
-    ? 'Ready'
-    : isDuplicate
-    ? 'Duplicate (2m)'
-    : 'Already in Ledger';
+  if (isReady) {
+    badgeBg = isReminder ? 'rgba(245, 158, 11, 0.18)' : theme.successLight;
+    badgeColor = isReminder ? '#F59E0B' : theme.success;
+    badgeIcon = isReminder ? 'notifications-outline' : 'checkmark-circle-outline';
+    badgeText = isReminder ? 'Reminder (No Balance)' : 'Ready';
+  } else if (isAcceptedDuplicate) {
+    badgeBg = 'rgba(16, 185, 129, 0.18)';
+    badgeColor = '#10B981';
+    badgeIcon = 'checkmark-done-circle-outline';
+    badgeText = 'Accepted Duplicate';
+  } else if (isDuplicate) {
+    badgeBg = 'rgba(245, 158, 11, 0.15)';
+    badgeColor = '#F59E0B';
+    badgeIcon = 'alert-circle-outline';
+    badgeText = 'Duplicate (2m)';
+  } else if (isIgnored) {
+    badgeBg = 'rgba(239, 68, 68, 0.15)';
+    badgeColor = '#EF4444';
+    badgeIcon = 'trash-bin-outline';
+    badgeText = 'Previously Deleted';
+  }
 
   const isAutoDiscovered = !!item.discoveredAccount;
   const descriptionText = item.note || item.rawText || '';
   const ledgerCat = item.ledgerCategory || item.discoveredAccount?.ledgerCategory;
+
+  const leftBorderColor = isIgnored
+    ? '#EF4444'
+    : isAcceptedDuplicate
+    ? '#10B981'
+    : item.isUncertain
+    ? '#F59E0B'
+    : isReminder
+    ? '#F59E0B'
+    : item.transferPairId
+    ? '#06B6D4'
+    : badgeColor;
 
   return (
     <View
@@ -53,16 +74,12 @@ function SyncPreviewItem({
         styles.card,
         {
           backgroundColor: theme.card,
-          borderColor: item.isUncertain ? '#F59E0B' : theme.cardBorder,
+          borderColor: isReminder ? '#F59E0B' : item.isUncertain ? '#F59E0B' : theme.cardBorder,
           borderLeftWidth: 4,
-          borderLeftColor: item.isUncertain
-            ? '#F59E0B'
-            : item.transferPairId
-            ? '#06B6D4'
-            : badgeColor,
+          borderLeftColor: leftBorderColor,
           borderWidth: 1.5,
         },
-        !isReady && { opacity: 0.8, backgroundColor: theme.cardSubtle },
+        (!isReady && !isAcceptedDuplicate) && { opacity: 0.85, backgroundColor: theme.cardSubtle },
       ]}
     >
       {/* Top Row: Counterparty / Merchant & Amount */}
@@ -151,6 +168,40 @@ function SyncPreviewItem({
         </TouchableOpacity>
       </View>
 
+      {/* Reminder Notification Banner with Toggle Option */}
+      {isReminder ? (
+        <View style={[styles.reminderBanner, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: '#F59E0B' }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 }}>
+            <Ionicons name="notifications-outline" size={13} color="#F59E0B" style={{ marginRight: 6 }} />
+            <Text style={[styles.reminderText, { color: '#F59E0B' }]} numberOfLines={2}>
+              🔔 <Text style={{ fontWeight: '800' }}>Reminder Only:</Text> Will not deduct from account balance.
+            </Text>
+          </View>
+          {onToggleReminder && (
+            <TouchableOpacity
+              style={[styles.toggleReminderBtn, { backgroundColor: '#F59E0B' }]}
+              onPress={() => onToggleReminder(item)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.toggleReminderBtnText}>Consider as Txn</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : (
+        onToggleReminder && isReady && (
+          <TouchableOpacity
+            style={styles.keepAsReminderRow}
+            onPress={() => onToggleReminder(item)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="notifications-outline" size={12} color={theme.accent} style={{ marginRight: 4 }} />
+            <Text style={[styles.keepAsReminderText, { color: theme.accent }]}>
+              Mark as Reminder (Exclude from account balance)
+            </Text>
+          </TouchableOpacity>
+        )
+      )}
+
       {/* Inter-Ledger Fund Transfer Pairing Banner */}
       {item.transferPairId && (
         <View style={[styles.transferBanner, { backgroundColor: 'rgba(6, 182, 212, 0.12)', borderColor: '#06B6D4' }]}>
@@ -161,7 +212,7 @@ function SyncPreviewItem({
         </View>
       )}
 
-      {/* Uncertainty Review Banner (Only on genuinely ambiguous items) */}
+      {/* Uncertainty Review Banner */}
       {item.isUncertain && (
         <View style={[styles.uncertainBanner, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: '#F59E0B' }]}>
           <Ionicons name="help-circle" size={13} color="#F59E0B" style={{ marginRight: 6 }} />
@@ -272,26 +323,53 @@ function SyncPreviewItem({
             {formatDate(item.date)}
           </Text>
 
-          {/* Accept / Import override button for Duplicates / Existing entries */}
-          {!isReady && onAcceptDuplicate && (
+          {/* Import button for Duplicates (Moves to Accepted Duplicates section) */}
+          {isDuplicate && onAcceptDuplicate && (
             <TouchableOpacity
-              style={[styles.acceptBtn, { backgroundColor: theme.successLight, borderColor: theme.success }]}
+              style={[styles.actionBtn, { backgroundColor: theme.successLight, borderColor: theme.success }]}
               onPress={() => onAcceptDuplicate(item)}
               activeOpacity={0.75}
-              accessibilityLabel="Accept and import this transaction anyway"
+              accessibilityLabel="Accept this duplicate and move to Accepted Duplicates"
             >
               <Ionicons name="add-circle" size={13} color={theme.success} style={{ marginRight: 3 }} />
-              <Text style={[styles.acceptBtnText, { color: theme.success }]}>Import</Text>
+              <Text style={[styles.actionBtnText, { color: theme.success }]}>Import</Text>
             </TouchableOpacity>
           )}
 
+          {/* Undo button for Accepted Duplicates (Moves back to Duplicates) */}
+          {isAcceptedDuplicate && onUndoDuplicate && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}
+              onPress={() => onUndoDuplicate(item)}
+              activeOpacity={0.75}
+              accessibilityLabel="Undo accepting this duplicate"
+            >
+              <Ionicons name="arrow-undo-outline" size={13} color={theme.textSecondary} style={{ marginRight: 3 }} />
+              <Text style={[styles.actionBtnText, { color: theme.textSecondary }]}>Undo</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Restore button for Previously Ignored items */}
+          {isIgnored && onRestoreIgnored && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}
+              onPress={() => onRestoreIgnored(item)}
+              activeOpacity={0.75}
+              accessibilityLabel="Restore this previously deleted transaction"
+            >
+              <Ionicons name="refresh-outline" size={13} color={theme.accent} style={{ marginRight: 3 }} />
+              <Text style={[styles.actionBtnText, { color: theme.accent }]}>Restore</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Dismiss / Delete / Spam button */}
           {onDismiss && (
             <TouchableOpacity
               style={[styles.dismissBtn, { backgroundColor: theme.dangerLight }]}
               onPress={() => onDismiss(item)}
               activeOpacity={0.75}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityLabel="Discard this transaction permanently"
+              accessibilityLabel="Discard this transaction"
             >
               <Ionicons name="trash-outline" size={13} color={theme.danger} />
             </TouchableOpacity>
@@ -299,20 +377,20 @@ function SyncPreviewItem({
         </View>
       </View>
 
-      {item.statusReason && !isReady ? (
+      {item.statusReason && !isReady && !isAcceptedDuplicate ? (
         <Text style={styles.reasonText}>⚠️ {item.statusReason}</Text>
       ) : null}
     </View>
   );
 }
 
-// Strict equality check for 60 FPS scrolling and 0ms accordion toggles
 function areEqual(prevProps, nextProps) {
   return (
     prevProps.item.id === nextProps.item.id &&
     prevProps.item.type === nextProps.item.type &&
     prevProps.item.status === nextProps.item.status &&
     prevProps.item.amount === nextProps.item.amount &&
+    prevProps.item.isReminder === nextProps.item.isReminder &&
     prevProps.item.isUncertain === nextProps.item.isUncertain &&
     prevProps.item.transferPairId === nextProps.item.transferPairId &&
     prevProps.accountName === nextProps.accountName &&
@@ -387,6 +465,42 @@ const styles = StyleSheet.create({
   typeSelectorText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  reminderBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  reminderText: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  toggleReminderBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  toggleReminderBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#000000',
+  },
+  keepAsReminderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  keepAsReminderText: {
+    fontSize: 11,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
   transferBanner: {
     flexDirection: 'row',
@@ -483,12 +597,12 @@ const styles = StyleSheet.create({
   actionsGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   dateText: {
-    fontSize: 11,
+    fontSize: 10.5,
   },
-  acceptBtn: {
+  actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
@@ -496,7 +610,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     borderWidth: 1,
   },
-  acceptBtnText: {
+  actionBtnText: {
     fontSize: 11,
     fontWeight: '800',
   },

@@ -148,13 +148,16 @@ export default function ReportsScreen({ navigation }) {
     };
   }, [periodMode, periodOffset, customPreset]);
 
-  // Filter transactions within range
+  // Filter transactions within range (excluding reminders from financial spend/income aggregates)
   const filteredTx = useMemo(() => {
-    return transactions.filter((tx) => {
-      const txDate = new Date(tx.date);
-      if (isNaN(txDate.getTime())) return false;
-      return txDate >= rangeStart && txDate <= rangeEnd;
-    });
+    return transactions
+      .filter((tx) => {
+        if (tx.isReminder) return false;
+        const txDate = new Date(tx.date);
+        if (isNaN(txDate.getTime())) return false;
+        return txDate >= rangeStart && txDate <= rangeEnd;
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [transactions, rangeStart, rangeEnd]);
 
   // Financial aggregates

@@ -18,9 +18,10 @@ function TransactionItem({
 
   const isIncome = transaction.type === 'income';
   const isAdjustment = transaction.type === 'adjustment' || transaction.categoryId === 'cat_adjustment';
+  const isReminder = !!transaction.isReminder;
 
-  const amountColor = isIncome ? '#10B981' : isAdjustment ? '#818CF8' : '#F43F5E';
-  const signPrefix = isIncome ? '+' : isAdjustment ? '±' : '-';
+  const amountColor = isReminder ? '#F59E0B' : isIncome ? '#10B981' : isAdjustment ? '#818CF8' : '#F43F5E';
+  const signPrefix = isReminder ? '🔔 ' : isIncome ? '+' : isAdjustment ? '±' : '-';
 
   return (
     <View
@@ -70,6 +71,12 @@ function TransactionItem({
             <Text style={[styles.metaDate, { color: theme.textSecondary }]}>
               {formatDate(transaction.date)}
             </Text>
+            {isReminder ? (
+              <View style={[styles.reminderChip, { backgroundColor: 'rgba(245, 158, 11, 0.18)' }]}>
+                <Ionicons name="notifications-outline" size={10} color="#F59E0B" style={{ marginRight: 2 }} />
+                <Text style={styles.reminderChipText}>Reminder</Text>
+              </View>
+            ) : null}
           </View>
 
           {/* User Comment / Annotation */}
@@ -223,6 +230,19 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  reminderChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  reminderChipText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#F59E0B',
   },
 });
 

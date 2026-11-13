@@ -269,8 +269,10 @@ export function inferCategory(text, type = 'expense') {
 export function resolveAccountInfo(text, availableAccounts = []) {
   const lower = text.toLowerCase();
 
-  // 1. Identify bank if mentioned (strip UPI beneficiary/payee handle so recipient merchant bank doesn't hijack sender bank)
-  const textWithoutUpiPayee = text.replace(/UPI\/(?:DR|CR)\/\d+\/[^/\s\n]+/gi, '');
+  // 1. Identify bank if mentioned (strip UPI beneficiary/payee handle and insurance companies)
+  const textWithoutUpiPayee = text
+    .replace(/UPI\/(?:DR|CR)\/\d+\/[^/\s\n]+/gi, '')
+    .replace(/\b(?:pnb\s*metlife|hdfc\s*life|sbi\s*life|icici\s*pru(?:dential)?|max\s*life|tata\s*aia|bajaj\s*allianz)\b/gi, '');
   let detectedBank = null;
   for (const bank of KNOWN_BANKS) {
     if (bank.patterns.some((p) => p.test(textWithoutUpiPayee))) {
@@ -301,9 +303,12 @@ export function resolveAccountInfo(text, availableAccounts = []) {
   }
 
   // 3. Determine if it's Credit Card vs Debit Account vs Wallet vs Cash
+  // Exclude generic advisory text like "credit card/bank account" without actual card digits
+  const hasGenericCardOrBank = /credit\s+card\s*\/\s*bank\s+account/i.test(lower);
   const isCredit =
-    lower.includes('credit card') ||
-    (lower.includes('card') && (lower.includes('limit') || lower.includes('avl limit') || lower.includes('credit') || lower.includes('spent at')));
+    !hasGenericCardOrBank &&
+    (lower.includes('credit card') ||
+    (lower.includes('card') && (lower.includes('limit') || lower.includes('avl limit') || lower.includes('credit') || lower.includes('spent at'))));
   const isWallet =
     lower.includes('wallet') ||
     lower.includes('gpay') ||
@@ -375,6 +380,23 @@ export function resolveAccountInfo(text, availableAccounts = []) {
           discoveredAccount: null,
         };
       }
+    }
+  }
+
+  // 5a. If no digits and no bank detected, fallback to existing primary account if available
+  if (!detectedBank && digits.length < 3 && availableAccounts.length > 0) {
+    const primary =
+      availableAccounts.find((a) => a.id === 'acc_primary' || a.id === 'acc_cash' || a.ledgerCategory === 'debit') ||
+      availableAccounts[0];
+    if (primary) {
+      return {
+        accountId: primary.id,
+        accountName: primary.name,
+        accountNumber: primary.number,
+        ledgerCategory: primary.ledgerCategory || ledgerCategory,
+        isNew: false,
+        discoveredAccount: null,
+      };
     }
   }
 
@@ -542,6 +564,23 @@ export function extractDate(text, rawTimestamp = null) {
  * Extract counterparty or merchant from transaction text
  */
 export function extractCounterparty(text, type = 'expense') {
+  // 0a. Insurance and Policybazaar Reminders (e.g. 'PNB Metlife policy no. 24028200 ... Team Policybazaar')
+  if (/(?:policybazaar|pnb\s*metlife)/i.test(text)) {
+    const polMatch = text.match(/policy\s+(?:no\.?|num\.?)?\s*([A-Za-z0-9]+)/i);
+    return polMatch ? `Policybazaar - PNB MetLife (#${polMatch[1]})` : 'Policybazaar - PNB MetLife';
+  }
+
+  // 0b. UPI AutoPay Mandate Setup (e.g. 'AutoPay Mandate ... successfully created towards Youtube for Rs 299')
+  const mandateMatch = text.match(/(?:mandate|autopay).*?towards\s+([A-Za-z0-9\s.&'-]{2,30}?)(?:\s+for\s+(?:rs\.?|inr|₹)|\s+for|\s+of|\.|$)/i);
+  if (mandateMatch && mandateMatch[1]) {
+    let c = mandateMatch[1].trim();
+    c = c.replace(/\s+(?:for\s+(?:rs\.?|inr|₹|payment)?|towards|via|using)$/i, '').trim();
+    if (!/^(?:the|your|a|an|account|a\/c|rs\.?|inr|₹)$/i.test(c)) {
+      if (/youtube/i.test(c)) return 'YouTube';
+      return c;
+    }
+  }
+
   // 1. Credit card bill payments (e.g. 'received payment of ... credited to your SBI Credit Card')
   if (
     /(?:payment.*?credited to your.*?credit card|received payment.*?credit card)/i.test(text) ||
@@ -589,10 +628,13 @@ export function extractCounterparty(text, type = 'expense') {
   }
 
   if (matchTo && matchTo[1]) {
-    const cleaned = matchTo[1].trim().replace(/[.,;:]$/, '');
+    let cleaned = matchTo[1].trim().replace(/[.,;:]$/, '');
+    cleaned = cleaned.replace(/\s+(?:for\s+(?:rs\.?|inr|₹|payment)?|towards|via|using)$/i, '').trim();
+    if (/youtube/i.test(cleaned)) return 'YouTube';
     const isBankOrAcc = /^(?:(?:the|your)\s+)?(?:hdfc|sbi|icici|axis|kotak|pnb|rbl|bank|account|a\/c)\b/i.test(cleaned);
     const isBad = isBankOrAcc ||
       /^(?:the|your|a|an|account|a\/c|rs\.?|inr|₹)$/i.test(cleaned) ||
+      /^(?:your\s+)?credit\s+card/i.test(cleaned) ||
       /^(?:rs\.?|inr|₹)?\s*[\d,]+(?:\.\d+)?$/i.test(cleaned);
     if (cleaned.length > 1 && !isBad) {
       return cleaned;
@@ -707,7 +749,15 @@ export function parseSingleMessage(
     return null;
   }
 
-  // 3. Must have a financial trigger word with actual executed movement of funds
+  // 3a. Check if message is a future reminder, scheduled debit, or mandate creation alert
+  const isFutureDebit = /\b(?:will\s+be\s+debited|shall\s+be\s+debited|is\s+scheduled\s+to\s+debit|scheduled\s+to\s+be\s+debited|would\s+be\s+debited)\b/i.test(lower);
+  const isDueNotice = /\b(?:is\s+due\s+on|payment.*?is\s+due|bill\s+is\s+due|due\s+date\s+is|is\s+due\s+by)\b/i.test(lower);
+  const isMaintainBalance = /\b(?:please\s+maintain\s+sufficient\s+balance|maintain\s+balance|keep\s+sufficient\s+balance)\b/i.test(lower);
+  const isMandateSetup = /\b(?:autopay\s+mandate.*?successfully\s+created|mandate.*?successfully\s+created|mandate.*?registered|e-mandate\s+created|si\s+created|standing\s+instruction\s+scheduled)\b/i.test(lower);
+
+  const isReminder = isFutureDebit || isDueNotice || isMaintainBalance || isMandateSetup;
+
+  // 3b. Must have a financial trigger word with actual executed movement of funds or upcoming alert
   const hasSalaryExecution =
     lower.includes('salary') &&
     (/\b(?:credited|deposited|received|transfer|inward|a\/c|account|bank)\b/i.test(lower) ||
@@ -723,7 +773,8 @@ export function parseSingleMessage(
     lower.includes('transferred') ||
     lower.includes('received') ||
     (lower.includes('refund') && /\b(?:credited|processed\s+to|deposited)\b/i.test(lower)) ||
-    hasSalaryExecution;
+    hasSalaryExecution ||
+    isReminder;
 
   if (!hasTrigger) return null;
 
@@ -740,10 +791,12 @@ export function parseSingleMessage(
   let type = 'expense';
 
   const isCreditCardPayment =
-    /(?:payment\s+of|payment\s+received).*?(?:credit\s+card|card)/i.test(lower) ||
-    /(?:credited\s+to\s+your\s+(?:[a-z\s]+)?credit\s+card)/i.test(lower) ||
-    /(?:received\s+payment.*?via\s+bbps)/i.test(lower) ||
-    /(?:payment\s+received.*?via\s+bbps)/i.test(lower);
+    !isReminder &&
+    !lower.includes('policy') &&
+    (/(?:payment\s+received.*?credit\s+card|received payment.*?credit card)/i.test(lower) ||
+      /(?:credited\s+to\s+your\s+(?:[a-z\s]+)?credit\s+card)/i.test(lower) ||
+      /(?:payment\s+of.*?credit\s+card\s+bill)/i.test(lower) ||
+      /(?:payment\s+received.*?via\s+bbps)/i.test(lower));
 
   const isExplicitDebit =
     /\b(?:debited|spent|paid|sent|withdrawn|deducted)\b/i.test(lower) ||
@@ -836,6 +889,8 @@ export function parseSingleMessage(
     discoveredAccount: accountResult.discoveredAccount,
     isUncertain,
     uncertaintyReason,
+    isReminder,
+    itemKind: isReminder ? 'reminder' : 'transaction',
   };
 }
 

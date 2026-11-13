@@ -22,12 +22,12 @@ export function formatCurrency(amount, showSign = false) {
 }
 
 /**
- * Format ISO date string or timestamp into a clean human readable string
+ * Format ISO date string or timestamp into a clean human readable string with full date & time
  */
 export function formatDate(isoString) {
   if (!isoString) return '';
   const date = new Date(isoString);
-  if (isNaN(date.getTime())) return isoString;
+  if (isNaN(date.getTime())) return String(isoString);
 
   const now = new Date();
   const isToday =
@@ -48,26 +48,43 @@ export function formatDate(isoString) {
     hour12: true,
   });
 
-  if (isToday) {
-    return `Today, ${timeStr}`;
-  }
-  if (isYesterday) {
-    return `Yesterday, ${timeStr}`;
-  }
-
-  return `${date.toLocaleDateString('en-IN', {
+  const dayStr = date.toLocaleDateString('en-IN', {
     day: 'numeric',
     month: 'short',
-  })}, ${timeStr}`;
+  });
+
+  if (isToday) {
+    return `Today, ${timeStr} (${dayStr})`;
+  }
+  if (isYesterday) {
+    return `Yesterday, ${timeStr} (${dayStr})`;
+  }
+
+  const weekday = date.toLocaleDateString('en-IN', { weekday: 'short' });
+  const yearStr = date.getFullYear() !== now.getFullYear() ? ` ${date.getFullYear()}` : '';
+
+  return `${weekday}, ${dayStr}${yearStr} • ${timeStr}`;
 }
 
+/**
+ * Short date formatting with time for compact table / report views
+ */
 export function formatShortDate(isoString) {
   if (!isoString) return '';
   const date = new Date(isoString);
-  if (isNaN(date.getTime())) return isoString;
-  return date.toLocaleDateString('en-IN', {
+  if (isNaN(date.getTime())) return String(isoString);
+
+  const dayStr = date.toLocaleDateString('en-IN', {
     day: 'numeric',
     month: 'short',
     year: '2-digit',
   });
+
+  const timeStr = date.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  return `${dayStr}, ${timeStr}`;
 }

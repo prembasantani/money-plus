@@ -27,7 +27,10 @@ export default function SyncScreen({ navigation }) {
     batchAddTransactions,
     blacklistedFingerprints,
     blacklistFingerprint,
+    unblacklistFingerprint,
     ignoreTransaction,
+    ignoredTransactions,
+    restoreIgnoredTransaction,
     theme,
   } = useFinance();
   const [rawText, setRawText] = useState('');
@@ -45,7 +48,9 @@ export default function SyncScreen({ navigation }) {
   const [accountsCollapsed, setAccountsCollapsed] = useState(false);
   const [uncertainCollapsed, setUncertainCollapsed] = useState(false);
   const [confirmedCollapsed, setConfirmedCollapsed] = useState(false);
+  const [acceptedDuplicatesCollapsed, setAcceptedDuplicatesCollapsed] = useState(false);
   const [duplicatesCollapsed, setDuplicatesCollapsed] = useState(true);
+  const [ignoredCollapsed, setIgnoredCollapsed] = useState(true);
 
   // Compute active sync date timeline
   const syncRange = useMemo(() => {
@@ -114,18 +119,39 @@ export default function SyncScreen({ navigation }) {
     return map;
   }, [accounts, discoveredAccounts]);
 
-  // Partition preview items into Uncertain, Confirmed, and Duplicates/Existing
+  // Partition preview items into Uncertain, Confirmed, Accepted Duplicates, Duplicate Alerts, and Ignored (Strict Descending Order)
   const uncertainItems = useMemo(
-    () => previewList.filter((item) => item.isUncertain && item.status === 'ready'),
+    () =>
+      previewList
+        .filter((item) => item.isUncertain && item.status === 'ready')
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [previewList]
   );
   const confirmedItems = useMemo(
-    () => previewList.filter((item) => !item.isUncertain && item.status === 'ready'),
+    () =>
+      previewList
+        .filter((item) => !item.isUncertain && item.status === 'ready')
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [previewList]
   );
-  const duplicateOrExistingItems = useMemo(
-    () => previewList.filter((item) => item.status !== 'ready'),
+  const acceptedDuplicates = useMemo(
+    () =>
+      previewList
+        .filter((item) => item.status === 'accepted_duplicate')
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [previewList]
+  );
+  const duplicateAlerts = useMemo(
+    () =>
+      previewList
+        .filter((item) => item.status === 'duplicate')
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [previewList]
+  );
+  const ignoredItems = useMemo(
+    () =>
+      [...ignoredTransactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [ignoredTransactions]
   );
 
   const handleDismissItem = useCallback(
@@ -177,17 +203,72 @@ export default function SyncScreen({ navigation }) {
         if (item.id === targetItem.id) {
           return {
             ...item,
-            status: 'ready',
-            statusReason: 'Manually accepted by user',
+            status: 'accepted_duplicate',
+            statusReason: 'Manually accepted duplicate by user',
           };
         }
         return item;
       })
     );
     notifyAction(
-      'Transaction Accepted',
-      `"${targetItem.counterparty}" has been marked as ready and will be imported.`,
+      'Duplicate Accepted',
+      `"${targetItem.counterparty}" moved to Accepted Duplicates and will be imported.`,
       { type: 'success' }
+    );
+  }, []);
+
+  const handleUndoDuplicate = useCallback((targetItem) => {
+    setPreviewList((prev) =>
+      prev.map((item) => {
+        if (item.id === targetItem.id) {
+          return {
+            ...item,
+            status: 'duplicate',
+            statusReason: 'Duplicate notification in SMS dump (within 2-min window)',
+          };
+        }
+        return item;
+      })
+    );
+    notifyAction(
+      'Duplicate Reverted',
+      `"${targetItem.counterparty}" moved back to Duplicate Alerts.`,
+      { type: 'info' }
+    );
+  }, []);
+
+  const handleRestoreIgnored = useCallback(
+    async (targetItem) => {
+      await restoreIgnoredTransaction(targetItem.id, targetItem.accountId, targetItem.type, targetItem.categoryId);
+      notifyAction(
+        'Transaction Restored',
+        `"${targetItem.counterparty}" has been restored back to your active transactions.`,
+        { type: 'success' }
+      );
+    },
+    [restoreIgnoredTransaction]
+  );
+
+  const handleToggleReminder = useCallback((targetItem) => {
+    setPreviewList((prev) =>
+      prev.map((item) => {
+        if (item.id === targetItem.id) {
+          const nextReminder = !item.isReminder;
+          return {
+            ...item,
+            isReminder: nextReminder,
+            itemKind: nextReminder ? 'reminder' : 'transaction',
+          };
+        }
+        return item;
+      })
+    );
+    notifyAction(
+      targetItem.isReminder ? 'Marked as Active Transaction' : 'Marked as Reminder',
+      targetItem.isReminder
+        ? 'Will affect account balance when imported.'
+        : 'Saved as reminder only; will not deduct from balance.',
+      { type: 'info' }
     );
   }, []);
 
@@ -374,9 +455,10 @@ export default function SyncScreen({ navigation }) {
     }
   };
 
-  const readyCount = previewList.filter((i) => i.status === 'ready').length;
-  const duplicateCount = previewList.filter((i) => i.status === 'duplicate').length;
-  const existingCount = previewList.filter((i) => i.status === 'existing').length;
+  const readyCount = previewList.filter((i) => i.status === 'ready' || i.status === 'accepted_duplicate').length;
+  const duplicateCount = duplicateAlerts.length;
+  const acceptedDuplicateCount = acceptedDuplicates.length;
+  const ignoredCount = ignoredItems.length;
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
@@ -698,6 +780,7 @@ export default function SyncScreen({ navigation }) {
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
+                        onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}
                       />
                     ))}
@@ -718,8 +801,59 @@ export default function SyncScreen({ navigation }) {
               </View>
             )}
 
-            {/* SECTION 3: DUPLICATE ALERTS WITHIN BATCH COLLAPSIBLE */}
-            {duplicateOrExistingItems.length > 0 && (
+            {/* SECTION 3: ACCEPTED DUPLICATES (MANUALLY INCLUDED BY USER) */}
+            {acceptedDuplicates.length > 0 && (
+              <View style={[styles.collapsibleSection, { backgroundColor: theme.card, borderColor: '#10B981', borderWidth: 1.5 }]}>
+                <TouchableOpacity
+                  style={styles.collapsibleHeader}
+                  onPress={() => setAcceptedDuplicatesCollapsed(!acceptedDuplicatesCollapsed)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.collapsibleHeaderLeft}>
+                    <View style={[styles.sectionIconBadge, { backgroundColor: 'rgba(16, 185, 129, 0.18)' }]}>
+                      <Ionicons name="checkmark-done-circle" size={18} color="#10B981" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={[styles.collapsibleTitle, { color: theme.text }]}>Accepted Duplicates</Text>
+                        <View style={[styles.countBadge, { backgroundColor: 'rgba(16, 185, 129, 0.18)' }]}>
+                          <Text style={[styles.countBadgeText, { color: '#10B981' }]}>{acceptedDuplicates.length}</Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.collapsibleSubtitle, { color: '#10B981' }]}>
+                        Duplicates you chose to include. Tap Undo to revert back to duplicate alerts.
+                      </Text>
+                    </View>
+                  </View>
+                  <Ionicons
+                    name={acceptedDuplicatesCollapsed ? 'chevron-down' : 'chevron-up'}
+                    size={18}
+                    color="#10B981"
+                  />
+                </TouchableOpacity>
+
+                {!acceptedDuplicatesCollapsed && (
+                  <View style={{ paddingTop: 6 }}>
+                    {acceptedDuplicates.map((item) => (
+                      <SyncPreviewItem
+                        key={item.id}
+                        item={item}
+                        accountName={accountMap[item.accountId]?.name || item.accountName || 'Bank Account'}
+                        categoryName={categoryMap[item.categoryId]?.name || 'General'}
+                        onDismiss={handleDismissItem}
+                        onSetType={handleSetType}
+                        onUndoDuplicate={handleUndoDuplicate}
+                        onToggleReminder={handleToggleReminder}
+                        onUpdateComment={handleUpdateComment}
+                      />
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* SECTION 4: DUPLICATE ALERTS WITHIN BATCH */}
+            {duplicateAlerts.length > 0 && (
               <View style={[styles.collapsibleSection, { backgroundColor: theme.card, borderColor: theme.cardBorder, borderWidth: 1 }]}>
                 <TouchableOpacity
                   style={styles.collapsibleHeader}
@@ -727,18 +861,18 @@ export default function SyncScreen({ navigation }) {
                   activeOpacity={0.7}
                 >
                   <View style={styles.collapsibleHeaderLeft}>
-                    <View style={[styles.sectionIconBadge, { backgroundColor: theme.cardSubtle }]}>
-                      <Ionicons name="copy-outline" size={16} color={theme.textMuted} />
+                    <View style={[styles.sectionIconBadge, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+                      <Ionicons name="copy-outline" size={16} color="#F59E0B" />
                     </View>
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <Text style={[styles.collapsibleTitle, { color: theme.textSecondary }]}>Duplicate Alerts</Text>
-                        <View style={[styles.countBadge, { backgroundColor: theme.cardSubtle }]}>
-                          <Text style={[styles.countBadgeText, { color: theme.textMuted }]}>{duplicateOrExistingItems.length}</Text>
+                        <View style={[styles.countBadge, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+                          <Text style={[styles.countBadgeText, { color: '#F59E0B' }]}>{duplicateAlerts.length}</Text>
                         </View>
                       </View>
                       <Text style={[styles.collapsibleSubtitle, { color: theme.textMuted }]}>
-                        Repeated alerts within 2 minutes. Tap + Import on any item to override.
+                        Repeated alerts within 2 minutes. Tap + Import to accept and move to Accepted Duplicates.
                       </Text>
                     </View>
                   </View>
@@ -751,7 +885,7 @@ export default function SyncScreen({ navigation }) {
 
                 {!duplicatesCollapsed && (
                   <View style={{ paddingTop: 6 }}>
-                    {duplicateOrExistingItems.map((item) => (
+                    {duplicateAlerts.map((item) => (
                       <SyncPreviewItem
                         key={item.id}
                         item={item}
@@ -760,6 +894,58 @@ export default function SyncScreen({ navigation }) {
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
                         onAcceptDuplicate={handleAcceptDuplicate}
+                        onToggleReminder={handleToggleReminder}
+                        onUpdateComment={handleUpdateComment}
+                      />
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* SECTION 5: IGNORED / PREVIOUSLY DELETED (EXCLUDED FROM LEDGER) */}
+            {ignoredItems.length > 0 && (
+              <View style={[styles.collapsibleSection, { backgroundColor: theme.card, borderColor: 'rgba(239, 68, 68, 0.4)', borderWidth: 1 }]}>
+                <TouchableOpacity
+                  style={styles.collapsibleHeader}
+                  onPress={() => setIgnoredCollapsed(!ignoredCollapsed)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.collapsibleHeaderLeft}>
+                    <View style={[styles.sectionIconBadge, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                      <Ionicons name="trash-bin-outline" size={16} color="#EF4444" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={[styles.collapsibleTitle, { color: '#EF4444' }]}>Ignored / Previously Deleted</Text>
+                        <View style={[styles.countBadge, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                          <Text style={[styles.countBadgeText, { color: '#EF4444' }]}>{ignoredItems.length}</Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.collapsibleSubtitle, { color: theme.textMuted }]}>
+                        Filtered out by previous deletes or spam filters (0 balance impact). Tap Restore to include.
+                      </Text>
+                    </View>
+                  </View>
+                  <Ionicons
+                    name={ignoredCollapsed ? 'chevron-down' : 'chevron-up'}
+                    size={18}
+                    color="#EF4444"
+                  />
+                </TouchableOpacity>
+
+                {!ignoredCollapsed && (
+                  <View style={{ paddingTop: 6 }}>
+                    {ignoredItems.map((item) => (
+                      <SyncPreviewItem
+                        key={item.id}
+                        item={item}
+                        accountName={accountMap[item.accountId]?.name || item.accountName || 'Bank Account'}
+                        categoryName={categoryMap[item.categoryId]?.name || 'General'}
+                        onDismiss={handleDismissItem}
+                        onSetType={handleSetType}
+                        onRestoreIgnored={handleRestoreIgnored}
+                        onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}
                       />
                     ))}

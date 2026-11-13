@@ -97,7 +97,7 @@ export default function DashboardScreen({ navigation }) {
       }
 
       return true;
-    });
+    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [
     transactions,
     selectedAccountFilter,
