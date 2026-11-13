@@ -167,7 +167,7 @@ export default function SyncScreen({ navigation }) {
     [ignoreTransaction]
   );
 
-  const handleSetType = useCallback((targetItem, newType) => {
+  const handleSetTypeAndReminder = useCallback((targetItem, newType, isReminder) => {
     setPreviewList((prev) =>
       prev.map((item) => {
         if (item.id === targetItem.id) {
@@ -189,13 +189,26 @@ export default function SyncScreen({ navigation }) {
             ...item,
             type: newType,
             categoryId: newCategory,
-            isUncertain: false, // User explicitly reviewed and chose the type!
+            isReminder: !!isReminder,
+            itemKind: isReminder ? 'reminder' : 'transaction',
+            isUncertain: false, // User explicitly reviewed and confirmed!
           };
         }
         return item;
       })
     );
+    notifyAction(
+      isReminder ? 'Marked as Reminder' : newType === 'income' ? 'Marked as + Credit' : 'Marked as - Debit',
+      isReminder
+        ? 'Stored as informational reminder (zero balance impact).'
+        : `Active ledger transaction: will ${newType === 'income' ? 'credit' : 'debit'} account on import.`,
+      { type: isReminder ? 'warning' : 'info' }
+    );
   }, []);
+
+  const handleSetType = useCallback((targetItem, newType) => {
+    handleSetTypeAndReminder(targetItem, newType, targetItem.isReminder);
+  }, [handleSetTypeAndReminder]);
 
   const handleAcceptDuplicate = useCallback((targetItem) => {
     setPreviewList((prev) =>
@@ -731,6 +744,7 @@ export default function SyncScreen({ navigation }) {
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
+                        onSetTypeAndReminder={handleSetTypeAndReminder}
                         onUpdateComment={handleUpdateComment}
                       />
                     ))}
@@ -780,6 +794,7 @@ export default function SyncScreen({ navigation }) {
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
+                        onSetTypeAndReminder={handleSetTypeAndReminder}
                         onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}
                       />
@@ -842,6 +857,7 @@ export default function SyncScreen({ navigation }) {
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
+                        onSetTypeAndReminder={handleSetTypeAndReminder}
                         onUndoDuplicate={handleUndoDuplicate}
                         onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}
@@ -893,6 +909,7 @@ export default function SyncScreen({ navigation }) {
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
+                        onSetTypeAndReminder={handleSetTypeAndReminder}
                         onAcceptDuplicate={handleAcceptDuplicate}
                         onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}
@@ -944,6 +961,7 @@ export default function SyncScreen({ navigation }) {
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
+                        onSetTypeAndReminder={handleSetTypeAndReminder}
                         onRestoreIgnored={handleRestoreIgnored}
                         onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}

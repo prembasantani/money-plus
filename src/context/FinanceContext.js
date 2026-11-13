@@ -23,11 +23,11 @@ export function FinanceProvider({ children }) {
   const [transactions, setTransactions] = useState([]);
   const [categories] = useState(CATEGORIES);
   const [isLoading, setIsLoading] = useState(true);
-  const [themeMode, setThemeModeState] = useState('dark');
+  const [themeMode, setThemeModeState] = useState('light');
   const [blacklistedFingerprints, setBlacklistedFingerprints] = useState([]);
   const [ignoredTransactions, setIgnoredTransactions] = useState([]);
 
-  const theme = THEMES[themeMode] || THEMES.dark;
+  const theme = THEMES[themeMode] || THEMES.light;
 
   const toggleTheme = async () => {
     const next = themeMode === 'dark' ? 'light' : 'dark';

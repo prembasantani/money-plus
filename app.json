@@ -2,20 +2,20 @@
   "expo": {
     "name": "Money+",
     "slug": "money-plus-app",
-    "version": "1.0.9",
-    "orientation": "portrait",
+    "version": "1.0.10",
+    "orientation": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
-    "backgroundColor": "#0B0F17",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F8FAFC",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.moneyplus.wallet"
     },
     "android": {
       "package": "com.moneyplus.wallet",
-      "versionCode": 10,
+      "versionCode": 11,
       "adaptiveIcon": {
-        "backgroundColor": "#0B0F17",
+        "backgroundColor": "#F8FAFC",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

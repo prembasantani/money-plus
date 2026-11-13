@@ -14,6 +14,7 @@ function SyncPreviewItem({
   onUndoDuplicate,
   onRestoreIgnored,
   onToggleReminder,
+  onSetTypeAndReminder,
   onUpdateComment,
 }) {
   const { theme } = useFinance();
@@ -32,9 +33,9 @@ function SyncPreviewItem({
 
   if (isReady) {
     badgeBg = isReminder ? 'rgba(245, 158, 11, 0.18)' : theme.successLight;
-    badgeColor = isReminder ? '#F59E0B' : theme.success;
+    badgeColor = isReminder ? '#D97706' : theme.success;
     badgeIcon = isReminder ? 'notifications-outline' : 'checkmark-circle-outline';
-    badgeText = isReminder ? 'Reminder (No Balance)' : 'Ready';
+    badgeText = isReminder ? 'Reminder (No Balance)' : 'Ready to Import';
   } else if (isAcceptedDuplicate) {
     badgeBg = 'rgba(16, 185, 129, 0.18)';
     badgeColor = '#10B981';
@@ -42,7 +43,7 @@ function SyncPreviewItem({
     badgeText = 'Accepted Duplicate';
   } else if (isDuplicate) {
     badgeBg = 'rgba(245, 158, 11, 0.15)';
-    badgeColor = '#F59E0B';
+    badgeColor = '#D97706';
     badgeIcon = 'alert-circle-outline';
     badgeText = 'Duplicate (2m)';
   } else if (isIgnored) {
@@ -68,6 +69,36 @@ function SyncPreviewItem({
     ? '#06B6D4'
     : badgeColor;
 
+  // Handle switching between Debit, Credit, and Reminder cleanly
+  const handleSelectOption = (option) => {
+    if (onSetTypeAndReminder) {
+      if (option === 'reminder') {
+        onSetTypeAndReminder(item, item.type || 'expense', true);
+      } else {
+        onSetTypeAndReminder(item, option, false);
+      }
+      return;
+    }
+
+    // Fallback if onSetTypeAndReminder not provided
+    if (option === 'reminder') {
+      if (!isReminder && onToggleReminder) {
+        onToggleReminder(item);
+      }
+    } else {
+      if (isReminder && onToggleReminder) {
+        onToggleReminder(item);
+      }
+      if (onSetType) {
+        onSetType(item, option);
+      }
+    }
+  };
+
+  const isDebitActive = !isReminder && item.type === 'expense';
+  const isCreditActive = !isReminder && item.type === 'income';
+  const isReminderActive = isReminder;
+
   return (
     <View
       style={[
@@ -77,23 +108,22 @@ function SyncPreviewItem({
           borderColor: isReminder ? '#F59E0B' : item.isUncertain ? '#F59E0B' : theme.cardBorder,
           borderLeftWidth: 4,
           borderLeftColor: leftBorderColor,
-          borderWidth: 1.5,
         },
-        (!isReady && !isAcceptedDuplicate) && { opacity: 0.85, backgroundColor: theme.cardSubtle },
+        (!isReady && !isAcceptedDuplicate) && { opacity: 0.88, backgroundColor: theme.cardSubtle },
       ]}
     >
-      {/* Top Row: Counterparty / Merchant & Amount */}
+      {/* 1. Header Row: Counterparty & Amount */}
       <View style={styles.topRow}>
         <View style={styles.merchantCol}>
           <Text style={[styles.merchantName, { color: theme.text }]} numberOfLines={1}>
             {item.counterparty}
           </Text>
           <View style={styles.accountCategoryRow}>
-            <Text style={[styles.accountText, { color: theme.accent }]}>
+            <Text style={[styles.accountText, { color: theme.accent }]} numberOfLines={1}>
               {accountName || item.accountName}
             </Text>
             <Text style={[styles.dot, { color: theme.textMuted }]}>•</Text>
-            <Text style={[styles.categoryText, { color: theme.textSecondary }]}>
+            <Text style={[styles.categoryText, { color: theme.textSecondary }]} numberOfLines={1}>
               {categoryName}
             </Text>
           </View>
@@ -103,103 +133,114 @@ function SyncPreviewItem({
           <Text
             style={[
               styles.amountText,
-              { color: item.type === 'income' ? theme.success : theme.danger },
+              {
+                color: isReminder
+                  ? '#D97706'
+                  : item.type === 'income'
+                  ? theme.success
+                  : theme.danger,
+              },
             ]}
           >
-            {item.type === 'income' ? '+' : '-'}{formatCurrency(item.amount)}
+            {isReminder ? '' : item.type === 'income' ? '+' : '-'}{formatCurrency(item.amount)}
           </Text>
+          {isReminder && (
+            <View style={styles.noticePill}>
+              <Text style={styles.noticePillText}>Notice Only</Text>
+            </View>
+          )}
         </View>
       </View>
 
-      {/* Prominent Side-by-Side Debit / Credit Selector */}
-      <View style={styles.typeSelectorRow}>
+      {/* 2. Unified 3-Segment Control: Debit | Credit | Reminder */}
+      <View style={[styles.segmentedControl, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
+        {/* Option 1: - Debit */}
         <TouchableOpacity
           style={[
-            styles.typeSelectorBtn,
-            item.type === 'expense'
-              ? { backgroundColor: '#DC2626', borderColor: '#DC2626' }
-              : { backgroundColor: theme.cardSubtle, borderColor: theme.border },
+            styles.segmentBtn,
+            isDebitActive && styles.segmentBtnDebitActive,
           ]}
-          onPress={() => onSetType && onSetType(item, 'expense')}
-          activeOpacity={0.75}
+          onPress={() => handleSelectOption('expense')}
+          activeOpacity={0.8}
         >
           <Ionicons
             name="arrow-down-circle"
             size={13}
-            color={item.type === 'expense' ? '#FFFFFF' : theme.textSecondary}
+            color={isDebitActive ? '#FFFFFF' : theme.textSecondary}
             style={{ marginRight: 4 }}
           />
           <Text
             style={[
-              styles.typeSelectorText,
-              { color: item.type === 'expense' ? '#FFFFFF' : theme.textSecondary },
-              item.type === 'expense' && { fontWeight: '800' },
+              styles.segmentBtnText,
+              { color: isDebitActive ? '#FFFFFF' : theme.textSecondary },
+              isDebitActive && styles.segmentBtnTextActive,
             ]}
           >
             - Debit
           </Text>
         </TouchableOpacity>
 
+        {/* Option 2: + Credit */}
         <TouchableOpacity
           style={[
-            styles.typeSelectorBtn,
-            item.type === 'income'
-              ? { backgroundColor: '#10B981', borderColor: '#10B981' }
-              : { backgroundColor: theme.cardSubtle, borderColor: theme.border },
+            styles.segmentBtn,
+            isCreditActive && styles.segmentBtnCreditActive,
           ]}
-          onPress={() => onSetType && onSetType(item, 'income')}
-          activeOpacity={0.75}
+          onPress={() => handleSelectOption('income')}
+          activeOpacity={0.8}
         >
           <Ionicons
             name="arrow-up-circle"
             size={13}
-            color={item.type === 'income' ? '#FFFFFF' : theme.textSecondary}
+            color={isCreditActive ? '#FFFFFF' : theme.textSecondary}
             style={{ marginRight: 4 }}
           />
           <Text
             style={[
-              styles.typeSelectorText,
-              { color: item.type === 'income' ? '#FFFFFF' : theme.textSecondary },
-              item.type === 'income' && { fontWeight: '800' },
+              styles.segmentBtnText,
+              { color: isCreditActive ? '#FFFFFF' : theme.textSecondary },
+              isCreditActive && styles.segmentBtnTextActive,
             ]}
           >
             + Credit
           </Text>
         </TouchableOpacity>
+
+        {/* Option 3: 🔔 Reminder */}
+        <TouchableOpacity
+          style={[
+            styles.segmentBtn,
+            isReminderActive && styles.segmentBtnReminderActive,
+          ]}
+          onPress={() => handleSelectOption('reminder')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="notifications"
+            size={13}
+            color={isReminderActive ? '#FFFFFF' : theme.textSecondary}
+            style={{ marginRight: 4 }}
+          />
+          <Text
+            style={[
+              styles.segmentBtnText,
+              { color: isReminderActive ? '#FFFFFF' : theme.textSecondary },
+              isReminderActive && styles.segmentBtnTextActive,
+            ]}
+          >
+            🔔 Reminder
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Reminder Notification Banner with Toggle Option */}
-      {isReminder ? (
-        <View style={[styles.reminderBanner, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: '#F59E0B' }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 }}>
-            <Ionicons name="notifications-outline" size={13} color="#F59E0B" style={{ marginRight: 6 }} />
-            <Text style={[styles.reminderText, { color: '#F59E0B' }]} numberOfLines={2}>
-              🔔 <Text style={{ fontWeight: '800' }}>Reminder Only:</Text> Will not deduct from account balance.
-            </Text>
-          </View>
-          {onToggleReminder && (
-            <TouchableOpacity
-              style={[styles.toggleReminderBtn, { backgroundColor: '#F59E0B' }]}
-              onPress={() => onToggleReminder(item)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.toggleReminderBtnText}>Consider as Txn</Text>
-            </TouchableOpacity>
-          )}
+      {/* 3. Helper Note for Reminder Mode */}
+      {isReminder && (
+        <View style={styles.reminderNoticeBox}>
+          <Ionicons name="information-circle" size={13} color="#D97706" style={{ marginRight: 5 }} />
+          <Text style={styles.reminderNoticeText}>
+            Informational notice only • Excluded from account balance & reports
+          </Text>
         </View>
-      ) : (
-        onToggleReminder && isReady && (
-          <TouchableOpacity
-            style={styles.keepAsReminderRow}
-            onPress={() => onToggleReminder(item)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="notifications-outline" size={12} color={theme.accent} style={{ marginRight: 4 }} />
-            <Text style={[styles.keepAsReminderText, { color: theme.accent }]}>
-              Mark as Reminder (Exclude from account balance)
-            </Text>
-          </TouchableOpacity>
-        )
       )}
 
       {/* Inter-Ledger Fund Transfer Pairing Banner */}
@@ -217,7 +258,7 @@ function SyncPreviewItem({
         <View style={[styles.uncertainBanner, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: '#F59E0B' }]}>
           <Ionicons name="help-circle" size={13} color="#F59E0B" style={{ marginRight: 6 }} />
           <Text style={[styles.uncertainText, { color: '#F59E0B' }]} numberOfLines={2}>
-            Review: <Text style={{ fontWeight: '700' }}>{item.uncertaintyReason || 'Tap - Debit or + Credit above to verify'}</Text>
+            Review: <Text style={{ fontWeight: '700' }}>{item.uncertaintyReason || 'Tap Debit, Credit, or Reminder above to confirm'}</Text>
           </Text>
         </View>
       )}
@@ -232,7 +273,7 @@ function SyncPreviewItem({
         </View>
       )}
 
-      {/* Full SMS Description */}
+      {/* 4. Full SMS Description Box */}
       {descriptionText ? (
         <View style={[styles.descriptionContainer, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
           <View style={styles.descriptionHeader}>
@@ -245,7 +286,7 @@ function SyncPreviewItem({
           >
             {descriptionText}
           </Text>
-          {descriptionText.length > 120 && (
+          {descriptionText.length > 110 && (
             <TouchableOpacity
               onPress={() => setExpanded(!expanded)}
               style={styles.expandBtn}
@@ -265,7 +306,7 @@ function SyncPreviewItem({
         </View>
       ) : null}
 
-      {/* Editable Comment Row during SMS Sync */}
+      {/* 5. Optional Tag/Comment Input */}
       <View style={[styles.commentRow, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
         <Ionicons name="chatbubble-outline" size={13} color={theme.accent} style={{ marginRight: 6 }} />
         <TextInput
@@ -277,92 +318,100 @@ function SyncPreviewItem({
         />
       </View>
 
-      {/* Status Badges, Date & Actions Row */}
-      <View style={styles.bottomRow}>
-        <View style={styles.badgesGroup}>
-          <View style={[styles.badge, { backgroundColor: badgeBg }]}>
-            <Ionicons name={badgeIcon} size={12} color={badgeColor} style={{ marginRight: 4 }} />
-            <Text style={[styles.badgeText, { color: badgeColor }]}>{badgeText}</Text>
-          </View>
+      {/* 6. Decluttered Two-Tier Footer */}
+      {/* Tier 1: Badges */}
+      <View style={styles.footerBadgesRow}>
+        <View style={[styles.badge, { backgroundColor: badgeBg }]}>
+          <Ionicons name={badgeIcon} size={11} color={badgeColor} style={{ marginRight: 4 }} />
+          <Text style={[styles.badgeText, { color: badgeColor }]}>{badgeText}</Text>
+        </View>
 
-          {ledgerCat && (
-            <View
+        {ledgerCat && (
+          <View
+            style={[
+              styles.badge,
+              {
+                backgroundColor:
+                  ledgerCat === 'credit'
+                    ? 'rgba(225, 29, 72, 0.12)'
+                    : ledgerCat === 'wallet'
+                    ? 'rgba(6, 182, 212, 0.12)'
+                    : theme.primaryLight,
+              },
+            ]}
+          >
+            <Ionicons
+              name={ledgerCat === 'credit' ? 'card-outline' : ledgerCat === 'wallet' ? 'wallet-outline' : 'business-outline'}
+              size={11}
+              color={ledgerCat === 'credit' ? '#E11D48' : ledgerCat === 'wallet' ? '#06B6D4' : theme.accent}
+              style={{ marginRight: 3 }}
+            />
+            <Text
               style={[
-                styles.badge,
+                styles.badgeText,
                 {
-                  backgroundColor:
+                  color:
                     ledgerCat === 'credit'
-                      ? 'rgba(225, 29, 72, 0.15)'
+                      ? '#E11D48'
                       : ledgerCat === 'wallet'
-                      ? 'rgba(6, 182, 212, 0.15)'
-                      : theme.primaryLight,
+                      ? '#06B6D4'
+                      : theme.accent,
                 },
               ]}
             >
-              <Text
-                style={[
-                  styles.badgeText,
-                  {
-                    color:
-                      ledgerCat === 'credit'
-                        ? '#E11D48'
-                        : ledgerCat === 'wallet'
-                        ? '#06B6D4'
-                        : theme.accent,
-                  },
-                ]}
-              >
-                {ledgerCat === 'credit' ? 'Credit Card' : ledgerCat === 'wallet' ? 'Wallet' : 'Bank Account'}
-              </Text>
-            </View>
-          )}
-        </View>
+              {ledgerCat === 'credit' ? 'Credit Card' : ledgerCat === 'wallet' ? 'Wallet' : 'Bank Account'}
+            </Text>
+          </View>
+        )}
+      </View>
 
-        <View style={styles.actionsGroup}>
-          <Text style={[styles.dateText, { color: theme.textMuted }]}>
+      {/* Tier 2: Date & Action Buttons */}
+      <View style={styles.footerActionsRow}>
+        <View style={styles.dateCol}>
+          <Ionicons name="calendar-outline" size={11} color={theme.textMuted} style={{ marginRight: 4 }} />
+          <Text style={[styles.dateText, { color: theme.textMuted }]} numberOfLines={1}>
             {formatDate(item.date)}
           </Text>
+        </View>
 
-          {/* Import button for Duplicates (Moves to Accepted Duplicates section) */}
+        <View style={styles.actionButtonsCol}>
+          {/* Import Duplicate */}
           {isDuplicate && onAcceptDuplicate && (
             <TouchableOpacity
               style={[styles.actionBtn, { backgroundColor: theme.successLight, borderColor: theme.success }]}
               onPress={() => onAcceptDuplicate(item)}
               activeOpacity={0.75}
-              accessibilityLabel="Accept this duplicate and move to Accepted Duplicates"
             >
               <Ionicons name="add-circle" size={13} color={theme.success} style={{ marginRight: 3 }} />
               <Text style={[styles.actionBtnText, { color: theme.success }]}>Import</Text>
             </TouchableOpacity>
           )}
 
-          {/* Undo button for Accepted Duplicates (Moves back to Duplicates) */}
+          {/* Undo Duplicate */}
           {isAcceptedDuplicate && onUndoDuplicate && (
             <TouchableOpacity
               style={[styles.actionBtn, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}
               onPress={() => onUndoDuplicate(item)}
               activeOpacity={0.75}
-              accessibilityLabel="Undo accepting this duplicate"
             >
               <Ionicons name="arrow-undo-outline" size={13} color={theme.textSecondary} style={{ marginRight: 3 }} />
               <Text style={[styles.actionBtnText, { color: theme.textSecondary }]}>Undo</Text>
             </TouchableOpacity>
           )}
 
-          {/* Restore button for Previously Ignored items */}
+          {/* Restore Previously Deleted */}
           {isIgnored && onRestoreIgnored && (
             <TouchableOpacity
               style={[styles.actionBtn, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}
               onPress={() => onRestoreIgnored(item)}
               activeOpacity={0.75}
-              accessibilityLabel="Restore this previously deleted transaction"
             >
               <Ionicons name="refresh-outline" size={13} color={theme.accent} style={{ marginRight: 3 }} />
               <Text style={[styles.actionBtnText, { color: theme.accent }]}>Restore</Text>
             </TouchableOpacity>
           )}
 
-          {/* Dismiss / Delete / Spam button */}
+          {/* Dismiss / Delete Trash Button */}
           {onDismiss && (
             <TouchableOpacity
               style={[styles.dismissBtn, { backgroundColor: theme.dangerLight }]}
@@ -371,7 +420,7 @@ function SyncPreviewItem({
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityLabel="Discard this transaction"
             >
-              <Ionicons name="trash-outline" size={13} color={theme.danger} />
+              <Ionicons name="trash-outline" size={14} color={theme.danger} />
             </TouchableOpacity>
           )}
         </View>
@@ -405,14 +454,14 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
     marginHorizontal: 16,
-    marginBottom: 10,
+    marginBottom: 12,
     borderWidth: 1.5,
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   merchantCol: {
     flex: 1,
@@ -422,6 +471,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     lineHeight: 20,
+    letterSpacing: -0.2,
   },
   accountCategoryRow: {
     flexDirection: 'row',
@@ -431,7 +481,7 @@ const styles = StyleSheet.create({
   },
   accountText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   dot: {
     marginHorizontal: 5,
@@ -448,59 +498,66 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.3,
   },
-  typeSelectorRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 8,
+  noticePill: {
+    backgroundColor: 'rgba(245, 158, 11, 0.18)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginTop: 2,
   },
-  typeSelectorBtn: {
+  noticePillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#D97706',
+    textTransform: 'uppercase',
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 3,
+    marginBottom: 10,
+  },
+  segmentBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  typeSelectorText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  reminderBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 10,
     paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 8,
+    borderRadius: 7,
   },
-  reminderText: {
-    fontSize: 11,
-    lineHeight: 15,
+  segmentBtnDebitActive: {
+    backgroundColor: '#DC2626',
   },
-  toggleReminderBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+  segmentBtnCreditActive: {
+    backgroundColor: '#10B981',
   },
-  toggleReminderBtnText: {
-    fontSize: 10,
+  segmentBtnReminderActive: {
+    backgroundColor: '#F59E0B',
+  },
+  segmentBtnText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  segmentBtnTextActive: {
     fontWeight: '800',
-    color: '#000000',
   },
-  keepAsReminderRow: {
+  reminderNoticeBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingVertical: 4,
-    marginBottom: 6,
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderColor: '#F59E0B',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    marginBottom: 10,
   },
-  keepAsReminderText: {
+  reminderNoticeText: {
     fontSize: 11,
+    color: '#B45309',
     fontWeight: '600',
-    textDecorationLine: 'underline',
+    flex: 1,
   },
   transferBanner: {
     flexDirection: 'row',
@@ -558,8 +615,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   descriptionText: {
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11.5,
+    lineHeight: 17,
   },
   expandBtn: {
     flexDirection: 'row',
@@ -571,42 +628,66 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
-  bottomRow: {
+  commentRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 10,
   },
-  badgesGroup: {
+  commentInput: {
+    flex: 1,
+    fontSize: 11.5,
+    padding: 0,
+  },
+  footerBadgesRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
     flexWrap: 'wrap',
-    flex: 1,
+    gap: 6,
+    marginBottom: 8,
   },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: 3.5,
     borderRadius: 6,
   },
   badgeText: {
     fontSize: 10,
     fontWeight: '700',
   },
-  actionsGroup: {
+  footerActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(150, 150, 150, 0.1)',
+  },
+  dateCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  dateText: {
+    fontSize: 10.5,
+    fontWeight: '500',
+  },
+  actionButtonsCol: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  dateText: {
-    fontSize: 10.5,
-  },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: 7,
     borderWidth: 1,
   },
@@ -615,26 +696,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   dismissBtn: {
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
     borderRadius: 7,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  commentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  commentInput: {
-    flex: 1,
-    fontSize: 11.5,
-    padding: 0,
   },
   reasonText: {
     fontSize: 10,
