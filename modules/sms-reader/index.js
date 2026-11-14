@@ -10,7 +10,7 @@ export async function requestSmsPermission() {
       PermissionsAndroid.PERMISSIONS.READ_SMS,
       {
         title: 'SMS Access Permission',
-        message: 'Money+ requires permission to read bank SMS and UPI notification alerts to automatically update your ledger.',
+        message: 'MoneyFollows requires permission to read bank SMS and UPI notification alerts to automatically update your ledger.',
         buttonPositive: 'Allow',
         buttonNegative: 'Deny',
       }

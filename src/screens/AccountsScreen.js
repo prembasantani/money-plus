@@ -96,7 +96,7 @@ export default function AccountsScreen({ navigation }) {
 
   // Filtered accounts list
   const filteredAccounts = useMemo(() => {
-    return accounts.filter((acc) => {
+    const list = accounts.filter((acc) => {
       if (activeFilter !== 'ALL') {
         if (activeFilter === 'wallet') {
           if (acc.ledgerCategory !== 'wallet' && acc.ledgerCategory !== 'cash') return false;
@@ -115,6 +115,15 @@ export default function AccountsScreen({ navigation }) {
       }
 
       return true;
+    });
+
+    // Reminders pinned to the very bottom (last card)
+    return list.slice().sort((a, b) => {
+      const aIsRem = a.id === 'acc_reminders' || a.ledgerCategory === 'reminder';
+      const bIsRem = b.id === 'acc_reminders' || b.ledgerCategory === 'reminder';
+      if (aIsRem && !bIsRem) return 1;
+      if (!aIsRem && bIsRem) return -1;
+      return 0;
     });
   }, [accounts, activeFilter, searchQuery]);
 
@@ -389,12 +398,12 @@ export default function AccountsScreen({ navigation }) {
                         {acc.name}
                       </Text>
                       <View style={styles.accountMetaRow}>
-                        <Text style={[styles.accountNumberBadge, { color: theme.textSecondary }]}>
-                          {acc.number || 'Primary'}
+                        <Text style={[styles.accountNumberBadge, { color: theme.textSecondary }]} numberOfLines={1}>
+                          {isRemAcc ? 'Advisory' : (acc.number || 'Primary')}
                         </Text>
                         <Text style={[styles.dotSeparator, { color: theme.textMuted }]}>•</Text>
-                        <Text style={[styles.accountTxCountText, { color: theme.accent }]}>
-                          {txCount} {txCount === 1 ? 'entry' : 'entries'} (tap to view)
+                        <Text style={[styles.accountTxCountText, { color: theme.accent }]} numberOfLines={1}>
+                          {txCount} {txCount === 1 ? 'entry' : 'entries'}
                         </Text>
                       </View>
                     </View>
@@ -403,8 +412,8 @@ export default function AccountsScreen({ navigation }) {
                       <Text style={[styles.balanceAmountText, { color: balanceColor }]} numberOfLines={1}>
                         {isRemAcc ? '₹0.00' : formatCurrency(acc.balance || 0)}
                       </Text>
-                      <Text style={[styles.balanceSubText, { color: theme.textMuted }]}>
-                        {isRemAcc ? 'No Balance Impact' : isCredit ? 'Outstanding' : 'Available'}
+                      <Text style={[styles.balanceSubText, { color: theme.textMuted }]} numberOfLines={1}>
+                        {isRemAcc ? 'Zero Balance' : isCredit ? 'Outstanding' : 'Available'}
                       </Text>
                     </View>
                   </View>
@@ -868,6 +877,7 @@ const styles = StyleSheet.create({
   accountNameCol: {
     flex: 1,
     minWidth: 0,
+    paddingRight: 8,
   },
   accountNameText: {
     fontSize: 14.5,
@@ -876,6 +886,7 @@ const styles = StyleSheet.create({
   accountMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     marginTop: 2,
   },
   accountNumberBadge: {
@@ -892,7 +903,8 @@ const styles = StyleSheet.create({
   },
   accountBalanceCol: {
     alignItems: 'flex-end',
-    marginLeft: 8,
+    marginLeft: 4,
+    flexShrink: 0,
   },
   balanceAmountText: {
     fontSize: 15,

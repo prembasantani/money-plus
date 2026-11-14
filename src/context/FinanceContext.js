@@ -15,6 +15,8 @@ const STORAGE_KEYS = {
   THEME: '@money_plus_theme_v1',
   BLACKLISTED: '@money_plus_blacklisted_v1',
   IGNORED_TRANSACTIONS: '@money_plus_ignored_transactions_v1',
+  AUTO_SYNC_ENABLED: '@money_follows_auto_sync_enabled_v1',
+  HAS_SYNCED_ONCE: '@money_follows_has_synced_once_v1',
 };
 
 const FinanceContext = createContext(null);
@@ -27,6 +29,8 @@ export function FinanceProvider({ children }) {
   const [themeMode, setThemeModeState] = useState('light');
   const [blacklistedFingerprints, setBlacklistedFingerprints] = useState([]);
   const [ignoredTransactions, setIgnoredTransactions] = useState([]);
+  const [hasSyncedOnce, setHasSyncedOnce] = useState(false);
+  const [autoSyncEnabled, setAutoSyncEnabledState] = useState(true);
 
   const theme = THEMES[themeMode] || THEMES.light;
 
@@ -49,6 +53,24 @@ export function FinanceProvider({ children }) {
     }
   };
 
+  const markHasSyncedOnce = async () => {
+    setHasSyncedOnce(true);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.HAS_SYNCED_ONCE, 'true');
+    } catch (e) {
+      console.warn('Failed to persist hasSyncedOnce', e);
+    }
+  };
+
+  const setAutoSyncEnabled = async (enabled) => {
+    setAutoSyncEnabledState(enabled);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.AUTO_SYNC_ENABLED, enabled ? 'true' : 'false');
+    } catch (e) {
+      console.warn('Failed to persist autoSyncEnabled', e);
+    }
+  };
+
   // Load state from AsyncStorage on boot
   useEffect(() => {
     async function loadData() {
@@ -57,6 +79,16 @@ export function FinanceProvider({ children }) {
         const storedTx = await AsyncStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
         const storedTheme = await AsyncStorage.getItem(STORAGE_KEYS.THEME);
         const storedBlacklist = await AsyncStorage.getItem(STORAGE_KEYS.BLACKLISTED);
+        const storedSyncedOnce = await AsyncStorage.getItem(STORAGE_KEYS.HAS_SYNCED_ONCE);
+        const storedAutoSync = await AsyncStorage.getItem(STORAGE_KEYS.AUTO_SYNC_ENABLED);
+
+        if (storedSyncedOnce === 'true') {
+          setHasSyncedOnce(true);
+        }
+
+        if (storedAutoSync !== null) {
+          setAutoSyncEnabledState(storedAutoSync === 'true');
+        }
 
         if (storedTheme) {
           setThemeModeState(storedTheme);
@@ -79,8 +111,38 @@ export function FinanceProvider({ children }) {
           }
         }
 
+        // Sanitize legacy demo transactions (tx_seed_*)
+        let sanitizedTx = [];
+        if (storedTx) {
+          const rawParsedTx = JSON.parse(storedTx);
+          sanitizedTx = rawParsedTx.filter((t) => !t.id?.startsWith('tx_seed_'));
+          if (sanitizedTx.length !== rawParsedTx.length) {
+            await AsyncStorage.setItem(
+              STORAGE_KEYS.TRANSACTIONS,
+              JSON.stringify(sanitizedTx)
+            );
+          }
+        } else {
+          sanitizedTx = INITIAL_TRANSACTIONS;
+          await AsyncStorage.setItem(
+            STORAGE_KEYS.TRANSACTIONS,
+            JSON.stringify(INITIAL_TRANSACTIONS)
+          );
+        }
+        setTransactions(sanitizedTx);
+
         if (storedAccounts) {
           let parsedAccounts = JSON.parse(storedAccounts);
+          // If stored accounts contain legacy seed accounts (acc_hdfc, acc_icici with demo balances) and no transactions exist for them, sanitize
+          const legacySeedIds = ['acc_icici', 'acc_hdfc', 'acc_gpay', 'acc_paytm'];
+          const hasLegacySeedAccounts = parsedAccounts.some((a) => legacySeedIds.includes(a.id));
+          if (hasLegacySeedAccounts && sanitizedTx.length === 0) {
+            parsedAccounts = DEFAULT_ACCOUNTS;
+            await AsyncStorage.setItem(
+              STORAGE_KEYS.ACCOUNTS,
+              JSON.stringify(DEFAULT_ACCOUNTS)
+            );
+          }
           if (!parsedAccounts.some((a) => a.id === 'acc_reminders')) {
             parsedAccounts.push(REMINDER_ACCOUNT);
           }
@@ -90,16 +152,6 @@ export function FinanceProvider({ children }) {
           await AsyncStorage.setItem(
             STORAGE_KEYS.ACCOUNTS,
             JSON.stringify(DEFAULT_ACCOUNTS)
-          );
-        }
-
-        if (storedTx) {
-          setTransactions(JSON.parse(storedTx));
-        } else {
-          setTransactions(INITIAL_TRANSACTIONS);
-          await AsyncStorage.setItem(
-            STORAGE_KEYS.TRANSACTIONS,
-            JSON.stringify(INITIAL_TRANSACTIONS)
           );
         }
       } catch (error) {
@@ -256,6 +308,9 @@ export function FinanceProvider({ children }) {
     // Always maintain descending chronological sorting (latest at the top)
     updatedTxList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     await saveState(updatedAccounts, updatedTxList);
+    if (toImport.length > 0) {
+      await markHasSyncedOnce();
+    }
     return toImport.length;
   };
 
@@ -406,7 +461,7 @@ export function FinanceProvider({ children }) {
    */
   const exportBackupJson = () => {
     const payload = {
-      appName: 'Money+ Cute Expense Tracker',
+      appName: 'MoneyFollows Offline Finance & Ledger',
       exportedAt: new Date().toISOString(),
       version: 1,
       accounts,
@@ -922,6 +977,10 @@ export function FinanceProvider({ children }) {
         ignoreTransaction,
         restoreIgnoredTransaction,
         purgeIgnoredTransaction,
+        hasSyncedOnce,
+        markHasSyncedOnce,
+        autoSyncEnabled,
+        setAutoSyncEnabled,
         theme,
         themeMode,
         setThemeMode,

@@ -1,9 +1,15 @@
 import { parseRawSmsBatch, parseSingleMessage, parseDeviceSmsList } from '../src/utils/parser.js';
 import { runDeduplicationEngine, generateFingerprint } from '../src/utils/deduplication.js';
-import { DEFAULT_ACCOUNTS, INITIAL_TRANSACTIONS, SAMPLE_SMS_BATCH } from '../src/types/finance.js';
+import { DEFAULT_ACCOUNTS, INITIAL_TRANSACTIONS, CATEGORIES, SAMPLE_SMS_BATCH } from '../src/types/finance.js';
 import { formatCurrency } from '../src/utils/formatters.js';
+import {
+  generateGSTR1Csv,
+  generateGSTR3BPurchaseCsv,
+  generateITRScheduleCsv,
+  generateUnifiedMasterTaxCsv,
+} from '../src/utils/taxExport.js';
 
-console.log('=== MONEY+ ENGINE VERIFICATION TEST ===\n');
+console.log('=== MONEYFOLLOWS ENGINE VERIFICATION TEST ===\n');
 
 // 1. Test Parser with Sample SMS
 console.log('--- 1. Testing SMS Batch Parser ---');
@@ -778,4 +784,106 @@ if (reclassifiedSbiToCash.ledgerCategory !== 'cash' || reclassifiedSbiToCash.typ
 }
 console.log('  ✅ Verified: Account category switching dynamically updates ledgerCategory, card type, and styling.');
 
-console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering, Reminders & Sorting Unit Tests Passed Successfully!\n');
+// --- 35. Testing GST & ITR CSV Exports ---
+console.log('\n--- 35. Testing GST & ITR CSV Exports ---');
+const sampleTaxTxs = [
+  {
+    id: 'tx_tax_1',
+    amount: 11800,
+    type: 'income',
+    accountId: 'acc_icici',
+    categoryId: 'cat_salary',
+    counterparty: 'Client Consulting Services',
+    date: '2026-11-10T10:00:00.000Z',
+    note: 'Consulting fees',
+  },
+  {
+    id: 'tx_tax_2',
+    amount: 2360,
+    type: 'expense',
+    accountId: 'acc_icici',
+    categoryId: 'cat_bills',
+    counterparty: 'Airtel Broadband Office',
+    date: '2026-11-11T12:00:00.000Z',
+    note: 'Internet dues',
+  },
+  {
+    id: 'tx_tax_3',
+    amount: 500,
+    type: 'expense',
+    accountId: 'acc_icici',
+    categoryId: 'cat_food',
+    counterparty: 'McDonalds Lunch',
+    date: '2026-11-12T13:00:00.000Z',
+    note: 'Staff lunch',
+  },
+  {
+    id: 'tx_tax_rem',
+    amount: 1500,
+    isReminder: true,
+    itemKind: 'reminder',
+    type: 'expense',
+    accountId: 'acc_reminders',
+    categoryId: 'cat_reminder',
+    counterparty: 'Upcoming Bill Reminder',
+    date: '2026-11-20T10:00:00.000Z',
+  },
+];
+
+const mockAccounts = [
+  { id: 'acc_icici', name: 'ICICI Bank', balance: 50000 },
+  { id: 'acc_reminders', name: 'Reminders & Mandates', balance: 0 },
+];
+
+const gstr1Csv = generateGSTR1Csv(sampleTaxTxs, mockAccounts, CATEGORIES);
+if (!gstr1Csv.includes('Client Consulting Services') || gstr1Csv.includes('Airtel Broadband') || gstr1Csv.includes('Upcoming Bill Reminder')) {
+  console.error('❌ Failed: GSTR-1 CSV must contain only outward income transactions and exclude reminders!', gstr1Csv);
+  process.exit(1);
+}
+
+const gstr3bCsv = generateGSTR3BPurchaseCsv(sampleTaxTxs, mockAccounts, CATEGORIES);
+if (!gstr3bCsv.includes('Airtel Broadband Office') || !gstr3bCsv.includes('McDonalds Lunch') || gstr3bCsv.includes('Upcoming Bill Reminder')) {
+  console.error('❌ Failed: GSTR-3B CSV must contain purchases and exclude reminders!', gstr3bCsv);
+  process.exit(1);
+}
+if (!gstr3bCsv.includes('Ineligible ITC - Section 17(5)(b)')) {
+  console.error('❌ Failed: Food/dining purchase must be flagged as Section 17(5) ineligible ITC!', gstr3bCsv);
+  process.exit(1);
+}
+
+const itrCsv = generateITRScheduleCsv(sampleTaxTxs, mockAccounts, CATEGORIES);
+if (!itrCsv.includes('FY 2026-27') || !itrCsv.includes('Rent, Rates, Power, Telephone & Utility Dues')) {
+  console.error('❌ Failed: ITR Schedule CSV missing expected FY or P&L head mapping!', itrCsv);
+  process.exit(1);
+}
+
+const masterTaxCsv = generateUnifiedMasterTaxCsv(sampleTaxTxs, mockAccounts, CATEGORIES);
+if (!masterTaxCsv.includes('Client Consulting Services') || !masterTaxCsv.includes('Airtel Broadband Office')) {
+  console.error('❌ Failed: Master Tax CSV missing expected transactions!', masterTaxCsv);
+  process.exit(1);
+}
+console.log('  ✅ Verified: GSTR-1 (Income), GSTR-3B (ITC Purchases), ITR Schedule, and Master CSV exported accurately with Section 17(5) classification.');
+
+// --- 36. Testing Clean State Defaults (Zero Dummy Data) ---
+console.log('\n--- 36. Testing Clean State Defaults (Zero Test Data) ---');
+if (INITIAL_TRANSACTIONS.length !== 0) {
+  console.error('❌ Failed: INITIAL_TRANSACTIONS must be completely empty for clean slate start! Found:', INITIAL_TRANSACTIONS.length);
+  process.exit(1);
+}
+if (DEFAULT_ACCOUNTS.length !== 2) {
+  console.error('❌ Failed: DEFAULT_ACCOUNTS must only contain Cash in Hand and Reminders & Mandates! Found:', DEFAULT_ACCOUNTS.length);
+  process.exit(1);
+}
+const cashAcc = DEFAULT_ACCOUNTS.find((a) => a.id === 'acc_cash');
+const remAcc = DEFAULT_ACCOUNTS.find((a) => a.id === 'acc_reminders');
+if (!cashAcc || cashAcc.balance !== 0) {
+  console.error('❌ Failed: Cash in Hand must have 0.00 initial balance!', cashAcc);
+  process.exit(1);
+}
+if (!remAcc || remAcc.balance !== 0) {
+  console.error('❌ Failed: Reminders & Mandates must have 0.00 initial balance!', remAcc);
+  process.exit(1);
+}
+console.log('  ✅ Verified: Clean slate defaults confirmed (0 seed transactions, Cash ₹0.00, Reminders ₹0.00, 0 dummy bank accounts).');
+
+console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering, Reminders, Tax Export & Sorting Unit Tests Passed Successfully!\n');

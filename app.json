@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Money+",
-    "slug": "money-plus-app",
-    "version": "1.0.14",
+    "name": "MoneyFollows",
+    "slug": "money-follows",
+    "version": "1.0.15",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "com.moneyplus.wallet",
-      "versionCode": 15,
+      "versionCode": 16,
       "adaptiveIcon": {
         "backgroundColor": "#F8FAFC",
         "foregroundImage": "./assets/android-icon-foreground.png",

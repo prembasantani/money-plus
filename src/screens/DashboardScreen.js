@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,8 +17,12 @@ import NetWorthCard from '../components/NetWorthCard';
 import TransactionItem from '../components/TransactionItem';
 import TransactionDetailModal from '../components/TransactionDetailModal';
 import SkeletonLoader from '../components/SkeletonLoader';
+import LoadingOverlay from '../components/LoadingOverlay';
 import { confirmAction, notifyAction } from '../utils/dialogs';
 import { formatCurrency } from '../utils/formatters';
+import { isDeviceSmsAvailable, readDeviceSms } from '../../modules/sms-reader';
+import { parseDeviceSmsList } from '../utils/parser';
+import { runDeduplicationEngine } from '../utils/deduplication';
 
 export default function DashboardScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -32,6 +36,10 @@ export default function DashboardScreen({ navigation }) {
     monthlyOutflow,
     deleteTransaction,
     updateTransactionComment,
+    batchAddTransactions,
+    hasSyncedOnce,
+    autoSyncEnabled,
+    blacklistedFingerprints,
     theme,
     themeMode,
     toggleTheme,
@@ -45,6 +53,14 @@ export default function DashboardScreen({ navigation }) {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
   const [onlyWithComments, setOnlyWithComments] = useState(false);
   const [displayLimit, setDisplayLimit] = useState(40);
+  const [groupingMode, setGroupingMode] = useState('DAILY'); // 'DAILY' | 'WEEKLY' | 'MONTHLY'
+
+  // Smart App-Open SMS Sync States
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
+  const [autoSyncPillVisible, setAutoSyncPillVisible] = useState(false);
+  const [isLoadingOverlay, setIsLoadingOverlay] = useState(false);
+  const [loadingOverlayText, setLoadingOverlayText] = useState('');
+  const [hasCheckedOnOpen, setHasCheckedOnOpen] = useState(false);
 
   // Comment Modal state
   const [commentModalTx, setCommentModalTx] = useState(null);
@@ -80,6 +96,94 @@ export default function DashboardScreen({ navigation }) {
     });
     return map;
   }, [accounts]);
+
+  // Smart App-Open SMS Sync (runs only if user has synced at least once in the past)
+  useEffect(() => {
+    if (hasCheckedOnOpen || !hasSyncedOnce || !autoSyncEnabled || !isDeviceSmsAvailable()) {
+      return;
+    }
+
+    setHasCheckedOnOpen(true);
+    let isCancelled = false;
+
+    async function checkSmsOnOpen() {
+      try {
+        setIsAutoSyncing(true);
+        setAutoSyncPillVisible(true);
+
+        const recentSms = await readDeviceSms(500);
+        if (isCancelled || !recentSms || recentSms.length === 0) {
+          setIsAutoSyncing(false);
+          setAutoSyncPillVisible(false);
+          return;
+        }
+
+        const { transactions: parsedItems, newAccounts } = parseDeviceSmsList(
+          recentSms,
+          accounts,
+          blacklistedFingerprints
+        );
+
+        if (parsedItems.length === 0) {
+          setIsAutoSyncing(false);
+          setAutoSyncPillVisible(false);
+          return;
+        }
+
+        const evaluated = runDeduplicationEngine(
+          parsedItems,
+          transactions,
+          blacklistedFingerprints
+        );
+
+        const candidates = evaluated.filter(
+          (i) => i.status === 'ready' || i.status === 'accepted_duplicate'
+        );
+
+        setIsAutoSyncing(false);
+        setAutoSyncPillVisible(false);
+
+        if (candidates.length > 0 && !isCancelled) {
+          confirmAction(
+            `✨ ${candidates.length} New SMS Transactions Found`,
+            `Discovered ${candidates.length} new bank transactions in your inbox. Load and refresh your ledger balances now?`,
+            async () => {
+              setIsLoadingOverlay(true);
+              setLoadingOverlayText('Updating ledger balances...');
+              try {
+                const count = await batchAddTransactions(candidates, newAccounts);
+                notifyAction('Ledger Updated!', `Imported ${count} new transactions.`, { type: 'success', icon: 'sparkles' });
+              } catch (err) {
+                notifyAction('Sync Notice', err.message || 'Could not import transactions.', { type: 'warning' });
+              } finally {
+                setIsLoadingOverlay(false);
+              }
+            },
+            {
+              confirmText: 'Load & Refresh Now',
+              cancelText: 'Later',
+              icon: 'cloud-download-outline',
+              type: 'info',
+            }
+          );
+        }
+      } catch (err) {
+        console.log('Auto-sync inbox check notice:', err);
+      } finally {
+        setIsAutoSyncing(false);
+        setAutoSyncPillVisible(false);
+      }
+    }
+
+    const timer = setTimeout(() => {
+      checkSmsOnOpen();
+    }, 1500);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [hasCheckedOnOpen, hasSyncedOnce, autoSyncEnabled, accounts, transactions, blacklistedFingerprints]);
 
   // Filter transactions
   const filteredTransactions = useMemo(() => {
@@ -152,7 +256,7 @@ export default function DashboardScreen({ navigation }) {
     accountMap,
   ]);
 
-  // Group transactions by calendar day (with day labels and daily totals)
+  // Group transactions dynamically by day, week, or month
   const groupedTransactions = useMemo(() => {
     const groups = [];
     const dateMap = {};
@@ -162,9 +266,12 @@ export default function DashboardScreen({ navigation }) {
     itemsToGroup.forEach((tx) => {
       const d = new Date(tx.date);
       if (isNaN(d.getTime())) return;
-      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-      if (!dateMap[dateKey]) {
+      let dateKey = '';
+      let label = '';
+
+      if (groupingMode === 'DAILY') {
+        dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const today = new Date();
         const yesterday = new Date();
         yesterday.setDate(today.getDate() - 1);
@@ -179,19 +286,32 @@ export default function DashboardScreen({ navigation }) {
           d.getMonth() === yesterday.getMonth() &&
           d.getFullYear() === yesterday.getFullYear();
 
-        let label = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
         if (isToday) {
           label = `Today • ${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
         } else if (isYesterday) {
           label = `Yesterday • ${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+        } else {
+          label = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
         }
+      } else if (groupingMode === 'WEEKLY') {
+        const weekNum = Math.ceil(d.getDate() / 7);
+        const monthStr = d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+        dateKey = `${d.getFullYear()}_W${Math.ceil((d.getTime() - new Date(d.getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000))}`;
+        label = `Week ${weekNum} of ${monthStr}`;
+      } else {
+        dateKey = `${d.getFullYear()}_${d.getMonth()}`;
+        label = d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+      }
 
+      if (!dateMap[dateKey]) {
         dateMap[dateKey] = {
           dateKey,
           label,
           items: [],
           dayInflow: 0,
           dayOutflow: 0,
+          catSpends: {},
+          accSpends: {},
         };
         groups.push(dateMap[dateKey]);
       }
@@ -203,20 +323,31 @@ export default function DashboardScreen({ navigation }) {
           dateMap[dateKey].dayInflow += tx.amount;
         } else if (tx.type === 'expense') {
           dateMap[dateKey].dayOutflow += tx.amount;
+          const catName = categoryMap[tx.categoryId]?.name || 'Expense';
+          dateMap[dateKey].catSpends[catName] = (dateMap[dateKey].catSpends[catName] || 0) + tx.amount;
+          const accName = accountMap[tx.accountId]?.name || 'Account';
+          dateMap[dateKey].accSpends[accName] = (dateMap[dateKey].accSpends[accName] || 0) + tx.amount;
         }
       }
     });
 
-    // Guarantee strict descending time order for items in each day group
+    // Compute top highlights & sort items descending
     groups.forEach((grp) => {
       grp.items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const topCat = Object.entries(grp.catSpends).sort((a, b) => b[1] - a[1])[0];
+      const topAcc = Object.entries(grp.accSpends).sort((a, b) => b[1] - a[1])[0];
+      if (topCat && topAcc) {
+        grp.summaryHighlights = `Top: ₹${topCat[1].toFixed(0)} on ${topCat[0]} via ${topAcc[0]}`;
+      } else if (topCat) {
+        grp.summaryHighlights = `Top: ₹${topCat[1].toFixed(0)} on ${topCat[0]}`;
+      }
     });
 
-    // Guarantee calendar days are sorted latest date first
+    // Guarantee groups are sorted latest date first
     groups.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 
     return groups;
-  }, [filteredTransactions, displayLimit]);
+  }, [filteredTransactions, displayLimit, groupingMode, categoryMap, accountMap]);
 
   const handleDeleteTransaction = useCallback(
     (id) => {
@@ -262,8 +393,8 @@ export default function DashboardScreen({ navigation }) {
               <Ionicons name="wallet" size={20} color={theme.primary} />
             </View>
             <View>
-              <Text style={[styles.appName, { color: theme.text }]}>Money+</Text>
-              <Text style={[styles.tagline, { color: theme.textSecondary }]}>High-Performance Ledger Tracker</Text>
+              <Text style={[styles.appName, { color: theme.text }]}>MoneyFollows</Text>
+              <Text style={[styles.tagline, { color: theme.textSecondary }]}>Offline Personal Finance & Tax Ledger</Text>
             </View>
           </View>
 
@@ -291,6 +422,23 @@ export default function DashboardScreen({ navigation }) {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Floating Auto-Sync Notification Pill */}
+        {autoSyncPillVisible && (
+          <View style={[styles.autoSyncPill, { backgroundColor: theme.card, borderColor: theme.primary }]}>
+            <Ionicons name="sync" size={14} color={theme.primary} style={{ marginRight: 6 }} />
+            <Text style={[styles.autoSyncPillText, { color: theme.text }]} numberOfLines={1}>
+              Checking SMS for new transactions...
+            </Text>
+            <TouchableOpacity
+              onPress={() => setAutoSyncPillVisible(false)}
+              style={[styles.autoSyncPillDismiss, { backgroundColor: theme.primaryLight }]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={[styles.autoSyncPillDismissText, { color: theme.accent }]}>Background ✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Net Worth Card (Balance hidden by default as requested) */}
         <NetWorthCard
@@ -505,7 +653,155 @@ export default function DashboardScreen({ navigation }) {
           </TouchableOpacity>
         </ScrollView>
 
-        {/* Transactions List Grouped by Day */}
+        {/* 3. Group By Segmented Control */}
+        <View style={styles.groupingHeaderRow}>
+          <Text style={[styles.filterGroupTitle, { color: theme.textMuted }]}>GROUP BY</Text>
+          <View style={[styles.groupingTabsRow, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
+            {[
+              { id: 'DAILY', label: 'Day-to-Day' },
+              { id: 'WEEKLY', label: 'Weekly' },
+              { id: 'MONTHLY', label: 'Monthly' },
+            ].map((g) => {
+              const active = groupingMode === g.id;
+              return (
+                <TouchableOpacity
+                  key={g.id}
+                  style={[
+                    styles.groupingTab,
+                    active && { backgroundColor: theme.primary },
+                  ]}
+                  onPress={() => setGroupingMode(g.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.groupingTabText,
+                      { color: active ? '#FFFFFF' : theme.textSecondary, fontWeight: active ? '700' : '600' },
+                    ]}
+                  >
+                    {g.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* 4. Filter by Bank Account Chips */}
+        <View style={{ marginTop: 10 }}>
+          <Text style={[styles.filterGroupTitle, { color: theme.textMuted, marginHorizontal: 20 }]}>
+            FILTER BY BANK ACCOUNT
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountChipsRow}>
+            <TouchableOpacity
+              style={[
+                styles.filterChipItem,
+                {
+                  backgroundColor: !selectedAccountFilter ? theme.primaryLight : theme.card,
+                  borderColor: !selectedAccountFilter ? theme.primary : theme.cardBorder,
+                },
+              ]}
+              onPress={() => setSelectedAccountFilter(null)}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  { color: !selectedAccountFilter ? theme.primary : theme.textSecondary, fontWeight: !selectedAccountFilter ? '700' : '600' },
+                ]}
+              >
+                All Accounts
+              </Text>
+            </TouchableOpacity>
+
+            {accounts.map((acc) => {
+              const isActive = selectedAccountFilter === acc.id;
+              return (
+                <TouchableOpacity
+                  key={acc.id}
+                  style={[
+                    styles.filterChipItem,
+                    {
+                      backgroundColor: isActive ? theme.primaryLight : theme.card,
+                      borderColor: isActive ? theme.primary : theme.cardBorder,
+                    },
+                  ]}
+                  onPress={() => setSelectedAccountFilter(isActive ? null : acc.id)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={acc.icon || 'card-outline'} size={12} color={isActive ? theme.primary : (acc.color || theme.textSecondary)} style={{ marginRight: 4 }} />
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      { color: isActive ? theme.primary : theme.textSecondary, fontWeight: isActive ? '700' : '600' },
+                    ]}
+                  >
+                    {acc.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* 5. Filter by Category Chips */}
+        <View style={{ marginTop: 10, marginBottom: 8 }}>
+          <Text style={[styles.filterGroupTitle, { color: theme.textMuted, marginHorizontal: 20 }]}>
+            FILTER BY CATEGORY
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountChipsRow}>
+            <TouchableOpacity
+              style={[
+                styles.filterChipItem,
+                {
+                  backgroundColor: !selectedCategoryFilter ? theme.primaryLight : theme.card,
+                  borderColor: !selectedCategoryFilter ? theme.primary : theme.cardBorder,
+                },
+              ]}
+              onPress={() => setSelectedCategoryFilter(null)}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  { color: !selectedCategoryFilter ? theme.primary : theme.textSecondary, fontWeight: !selectedCategoryFilter ? '700' : '600' },
+                ]}
+              >
+                All Categories
+              </Text>
+            </TouchableOpacity>
+
+            {categories.map((cat) => {
+              const isActive = selectedCategoryFilter === cat.id;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[
+                    styles.filterChipItem,
+                    {
+                      backgroundColor: isActive ? theme.primaryLight : theme.card,
+                      borderColor: isActive ? theme.primary : theme.cardBorder,
+                    },
+                  ]}
+                  onPress={() => setSelectedCategoryFilter(isActive ? null : cat.id)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={cat.icon || 'pricetag-outline'} size={12} color={isActive ? theme.primary : (cat.color || theme.textSecondary)} style={{ marginRight: 4 }} />
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      { color: isActive ? theme.primary : theme.textSecondary, fontWeight: isActive ? '700' : '600' },
+                    ]}
+                  >
+                    {cat.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* Transactions List Grouped by Day / Week / Month */}
         {isLoading ? (
           <SkeletonLoader count={4} />
         ) : filteredTransactions.length === 0 ? (
@@ -521,20 +817,29 @@ export default function DashboardScreen({ navigation }) {
         ) : (
           groupedTransactions.map((group) => (
             <View key={group.dateKey} style={styles.dayGroupContainer}>
-              {/* Day Header with Daily Subtotal Badges */}
+              {/* Group Header with Period Subtotal Badges & Top Highlight */}
               <View style={[styles.dayGroupHeader, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
                 <TouchableOpacity
                   style={styles.dayGroupHeaderLeft}
-                  onPress={() => setSelectedDateFilter(selectedDateFilter === group.dateKey ? null : group.dateKey)}
+                  onPress={() => groupingMode === 'DAILY' && setSelectedDateFilter(selectedDateFilter === group.dateKey ? null : group.dateKey)}
                   activeOpacity={0.7}
                 >
                   <Ionicons name="calendar-outline" size={13} color={theme.accent} style={{ marginRight: 6 }} />
-                  <Text style={[styles.dayGroupTitle, { color: theme.text }]}>
-                    {group.label}
-                  </Text>
-                  <Text style={[styles.dayItemCount, { color: theme.textMuted }]}>
-                    ({group.items.length})
-                  </Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={[styles.dayGroupTitle, { color: theme.text }]}>
+                        {group.label}
+                      </Text>
+                      <Text style={[styles.dayItemCount, { color: theme.textMuted }]}>
+                        ({group.items.length})
+                      </Text>
+                    </View>
+                    {group.summaryHighlights ? (
+                      <Text style={{ fontSize: 10, color: theme.textSecondary, marginTop: 1 }} numberOfLines={1}>
+                        {group.summaryHighlights}
+                      </Text>
+                    ) : null}
+                  </View>
                 </TouchableOpacity>
 
                 <View style={styles.dayGroupHeaderRight}>
@@ -626,6 +931,15 @@ export default function DashboardScreen({ navigation }) {
         visible={!!selectedDetailTx}
         transaction={selectedDetailTx}
         onClose={() => setSelectedDetailTx(null)}
+      />
+
+      {/* Full-Screen Loading Overlay for SMS Refresh */}
+      <LoadingOverlay
+        visible={isLoadingOverlay}
+        title="Syncing Ledger"
+        message={loadingOverlayText}
+        icon="sync-outline"
+        iconColor={theme.primary}
       />
     </SafeAreaView>
   );
@@ -907,5 +1221,72 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12.5,
     fontWeight: '700',
+  },
+  autoSyncPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  autoSyncPillText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  autoSyncPillDismiss: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginLeft: 6,
+  },
+  autoSyncPillDismissText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  groupingHeaderRow: {
+    marginHorizontal: 20,
+    marginTop: 12,
+  },
+  filterGroupTitle: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  groupingTabsRow: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 3,
+  },
+  groupingTab: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupingTabText: {
+    fontSize: 12,
+  },
+  accountChipsRow: {
+    paddingHorizontal: 20,
+    paddingBottom: 4,
+    gap: 6,
+  },
+  filterChipItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  filterChipText: {
+    fontSize: 11.5,
   },
 });

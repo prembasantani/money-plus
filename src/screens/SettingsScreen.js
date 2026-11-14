@@ -6,6 +6,8 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  Switch,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,17 +15,27 @@ import { useFinance } from '../context/FinanceContext';
 import { formatCurrency } from '../utils/formatters';
 import { confirmAction, notifyAction } from '../utils/dialogs';
 import IgnoredTransactionsModal from '../components/IgnoredTransactionsModal';
+import {
+  generateGSTR1Csv,
+  generateGSTR3BPurchaseCsv,
+  generateITRScheduleCsv,
+  generateUnifiedMasterTaxCsv,
+  shareTaxCsv,
+} from '../utils/taxExport';
 
 export default function SettingsScreen({ navigation }) {
   const {
     accounts,
     transactions,
+    categories,
     totalNetWorth,
     exportBackupJson,
     importBackupJson,
     resetToDemoData,
     clearLedgerData,
     ignoredTransactions,
+    autoSyncEnabled,
+    setAutoSyncEnabled,
     theme,
     themeMode,
     setThemeMode,
@@ -34,6 +46,49 @@ export default function SettingsScreen({ navigation }) {
   const [exportedString, setExportedString] = useState('');
   const [showRestoreBox, setShowRestoreBox] = useState(false);
   const [showIgnoredModal, setShowIgnoredModal] = useState(false);
+
+  // Tax CSV Modal State
+  const [taxModalVisible, setTaxModalVisible] = useState(false);
+  const [taxModalTitle, setTaxModalTitle] = useState('');
+  const [taxModalCsv, setTaxModalCsv] = useState('');
+  const [taxModalCount, setTaxModalCount] = useState(0);
+
+  const handleExportTax = async (type) => {
+    let csv = '';
+    let title = '';
+    let count = 0;
+
+    if (type === 'GSTR1') {
+      title = 'GSTR-1 Outward Supplies (Income CSV)';
+      csv = generateGSTR1Csv(transactions, accounts, categories);
+      count = transactions.filter((t) => t.type === 'income' && !t.isReminder).length;
+    } else if (type === 'GSTR3B') {
+      title = 'GSTR-3B Purchase Register (ITC Expenses CSV)';
+      csv = generateGSTR3BPurchaseCsv(transactions, accounts, categories);
+      count = transactions.filter((t) => t.type === 'expense' && !t.isReminder).length;
+    } else if (type === 'ITR') {
+      title = 'ITR P&L Schedule Breakdown (CSV)';
+      csv = generateITRScheduleCsv(transactions, accounts, categories);
+      count = transactions.filter((t) => !t.isReminder && t.type !== 'transfer' && t.type !== 'adjustment').length;
+    } else {
+      title = 'Master Tax & Financial Ledger (CSV)';
+      csv = generateUnifiedMasterTaxCsv(transactions, accounts, categories);
+      count = transactions.filter((t) => !t.isReminder && t.type !== 'transfer' && t.type !== 'adjustment').length;
+    }
+
+    setTaxModalTitle(title);
+    setTaxModalCsv(csv);
+    setTaxModalCount(count);
+    setTaxModalVisible(true);
+  };
+
+  const handleShareCurrentCsv = async () => {
+    try {
+      await shareTaxCsv(taxModalTitle, taxModalCsv);
+    } catch (err) {
+      notifyAction('Share Error', 'Could not open native share dialog.', { type: 'danger' });
+    }
+  };
 
   const handleBackupLedger = () => {
     const json = exportBackupJson();
@@ -48,7 +103,7 @@ export default function SettingsScreen({ navigation }) {
 
   const handleImport = async () => {
     if (!importJsonText.trim()) {
-      notifyAction('Empty Input', 'Please paste valid Money+ backup JSON text.', { type: 'warning' });
+      notifyAction('Empty Input', 'Please paste valid MoneyFollows backup JSON text.', { type: 'warning' });
       return;
     }
 
@@ -111,7 +166,7 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.header}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>Settings & Data</Text>
           <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
-            Personalize Money+ and manage your local data
+            Personalize MoneyFollows and manage your local data
           </Text>
         </View>
 
@@ -160,7 +215,37 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </View>
 
-        {/* 2. Ignored & Discarded Transactions Section Card */}
+        {/* 2. Sync & Automation Preferences */}
+        <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.titleIconBadge, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+              <Ionicons name="sync-circle-outline" size={18} color="#3B82F6" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Sync & Background Automation</Text>
+              <Text style={[styles.sectionSub, { color: theme.textSecondary }]}>
+                Automated inbox sync settings for MoneyFollows
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.prefRow, { borderColor: theme.border, backgroundColor: theme.cardSubtle }]}>
+            <View style={{ flex: 1, paddingRight: 10 }}>
+              <Text style={[styles.prefTitle, { color: theme.text }]}>Auto-Sync on App Open</Text>
+              <Text style={[styles.prefSub, { color: theme.textSecondary }]}>
+                Silently checks SMS inbox in background on app launch and prompts you with a loading confirmation before refreshing ledger data.
+              </Text>
+            </View>
+            <Switch
+              value={autoSyncEnabled}
+              onValueChange={setAutoSyncEnabled}
+              trackColor={{ false: theme.border, true: theme.primary }}
+              thumbColor={autoSyncEnabled ? '#FFFFFF' : '#F4F4F5'}
+            />
+          </View>
+        </View>
+
+        {/* 3. Ignored & Discarded Transactions Section Card */}
         <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, borderLeftWidth: 4, borderLeftColor: '#F59E0B' }]}>
           <View style={styles.sectionTitleRow}>
             <View style={[styles.titleIconBadge, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
@@ -191,7 +276,83 @@ export default function SettingsScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* 3. 1-Tap Ledger Actions: Clear Test Data, Backup Ledger, Reset Ledger */}
+        {/* 4. Tax, GST & ITR Exports Section Card */}
+        <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, borderLeftWidth: 4, borderLeftColor: '#10B981' }]}>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.titleIconBadge, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+              <Ionicons name="document-text-outline" size={18} color="#10B981" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Tax, GST & ITR Exports</Text>
+              <Text style={[styles.sectionSub, { color: theme.textSecondary }]}>
+                Offline CSV exports tailored for Indian GST returns & Income Tax filing
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.sectionDescription, { color: theme.textSecondary }]}>
+            Export your transactions into structured spreadsheets for filing GSTR-1, claiming GSTR-3B Input Tax Credit (ITC), and reporting ITR business P&L heads.
+          </Text>
+
+          <View style={{ gap: 8 }}>
+            <TouchableOpacity
+              style={[styles.taxExportBtn, { backgroundColor: theme.cardSubtle, borderColor: '#10B981' }]}
+              onPress={() => handleExportTax('GSTR1')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="arrow-up-circle-outline" size={20} color="#10B981" style={{ marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.taxExportBtnTitle, { color: theme.text }]}>GSTR-1 Outward Supplies (Income CSV)</Text>
+                <Text style={[styles.taxExportBtnSub, { color: theme.textSecondary }]}>
+                  Customer receipts, sales & professional income with taxable base and GST breakdown
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.taxExportBtn, { backgroundColor: theme.cardSubtle, borderColor: '#3B82F6' }]}
+              onPress={() => handleExportTax('GSTR3B')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="arrow-down-circle-outline" size={20} color="#3B82F6" style={{ marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.taxExportBtnTitle, { color: theme.text }]}>GSTR-3B Purchase Register (ITC Expenses CSV)</Text>
+                <Text style={[styles.taxExportBtnSub, { color: theme.textSecondary }]}>
+                  Vendor purchases with Section 17(5) blocked ITC and Table 4A(5) eligible credits
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.taxExportBtn, { backgroundColor: theme.cardSubtle, borderColor: '#8B5CF6' }]}
+              onPress={() => handleExportTax('ITR')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="calculator-outline" size={20} color="#8B5CF6" style={{ marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.taxExportBtnTitle, { color: theme.text }]}>ITR P&L Schedule Breakdown (CSV)</Text>
+                <Text style={[styles.taxExportBtnSub, { color: theme.textSecondary }]}>
+                  Income & expense heads classified by Indian Income Tax Act P&L categories & Financial Year
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.taxExportBtn, { backgroundColor: theme.cardSubtle, borderColor: theme.primary }]}
+              onPress={() => handleExportTax('MASTER')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="layers-outline" size={20} color={theme.primary} style={{ marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.taxExportBtnTitle, { color: theme.text }]}>Master Tax & Financial Ledger (Complete CSV)</Text>
+                <Text style={[styles.taxExportBtnSub, { color: theme.textSecondary }]}>
+                  Comprehensive spreadsheet combining all bank refs, notes, tax heads, and audit columns
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* 5. Ledger & Data Actions (Temporarily Commented Out) */}
         <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
           <View style={styles.sectionTitleRow}>
             <View style={[styles.titleIconBadge, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
@@ -199,11 +360,11 @@ export default function SettingsScreen({ navigation }) {
             </View>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Ledger & Data Actions</Text>
           </View>
-          <Text style={[styles.sectionDescription, { color: theme.textSecondary }]}>
-            Manage your ledger data with quick one-click actions:
+          <Text style={[styles.sectionDescription, { color: theme.textSecondary, marginBottom: 4 }]}>
+            Ledger data management buttons are currently hidden. Your local accounts and transactions remain safe and fully persistent on this device.
           </Text>
 
-          {/* 1. Clear Test Data & Start Fresh (Single Primary Button) */}
+          {/* User Requested: Commented out all Ledger & Data Action buttons for now
           <TouchableOpacity
             style={[styles.primaryActionBtn, { backgroundColor: '#EF4444' }]}
             onPress={handleClearTestData}
@@ -213,7 +374,6 @@ export default function SettingsScreen({ navigation }) {
             <Text style={styles.primaryActionBtnText}>Clear Test Data & Start Fresh</Text>
           </TouchableOpacity>
 
-          {/* 2. Backup Ledger (Single Button) */}
           <TouchableOpacity
             style={[styles.secondaryActionBtn, { backgroundColor: theme.cardSubtle, borderColor: theme.primary, borderWidth: 1.5 }]}
             onPress={handleBackupLedger}
@@ -223,7 +383,6 @@ export default function SettingsScreen({ navigation }) {
             <Text style={[styles.secondaryActionBtnText, { color: theme.accent }]}>Backup Ledger (Export JSON)</Text>
           </TouchableOpacity>
 
-          {/* 3. Reset Ledger (Single Button) */}
           <TouchableOpacity
             style={[styles.secondaryActionBtn, { backgroundColor: theme.cardSubtle, borderColor: theme.border, borderWidth: 1 }]}
             onPress={handleResetData}
@@ -233,7 +392,6 @@ export default function SettingsScreen({ navigation }) {
             <Text style={[styles.secondaryActionBtnText, { color: theme.textSecondary }]}>Reset Ledger (Reload Sample Data)</Text>
           </TouchableOpacity>
 
-          {/* Export JSON Modal Box */}
           {showExportModal ? (
             <View style={[styles.jsonPreviewBox, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
               <View style={styles.jsonHeaderRow}>
@@ -254,10 +412,7 @@ export default function SettingsScreen({ navigation }) {
               />
             </View>
           ) : null}
-        </View>
 
-        {/* 4. Restore From JSON (Collapsible) */}
-        <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
           <TouchableOpacity
             style={styles.restoreHeaderRow}
             onPress={() => setShowRestoreBox(!showRestoreBox)}
@@ -279,7 +434,7 @@ export default function SettingsScreen({ navigation }) {
           {showRestoreBox && (
             <View style={{ marginTop: 12 }}>
               <Text style={[styles.sectionDescription, { color: theme.textSecondary }]}>
-                Paste previously exported Money+ JSON to restore accounts and balances.
+                Paste previously exported MoneyFollows JSON to restore accounts and balances.
               </Text>
               <TextInput
                 style={[styles.importInput, { backgroundColor: theme.cardSubtle, borderColor: theme.border, color: theme.text }]}
@@ -305,6 +460,7 @@ export default function SettingsScreen({ navigation }) {
               </TouchableOpacity>
             </View>
           )}
+          */}
         </View>
 
         {/* 5. Database Stats Card */}
@@ -343,6 +499,62 @@ export default function SettingsScreen({ navigation }) {
         visible={showIgnoredModal}
         onClose={() => setShowIgnoredModal(false)}
       />
+
+      {/* Tax CSV Preview & Share Modal */}
+      <Modal
+        visible={taxModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTaxModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.taxModalContent, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+            <View style={styles.taxModalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.taxModalTitle, { color: theme.text }]} numberOfLines={1}>
+                  {taxModalTitle}
+                </Text>
+                <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>
+                  {taxModalCount} transaction records formatted for tax filing
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setTaxModalVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close-circle" size={24} color={theme.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={[styles.taxCsvPreviewArea, { backgroundColor: theme.cardSubtle, borderColor: theme.border, color: theme.text }]}
+              multiline
+              editable={false}
+              value={taxModalCsv}
+              numberOfLines={12}
+            />
+
+            <View style={styles.taxModalActions}>
+              <TouchableOpacity
+                style={[styles.taxShareBtn, { backgroundColor: '#10B981' }]}
+                onPress={handleShareCurrentCsv}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="share-social-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.taxShareBtnText}>Share / Save CSV File</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.taxCloseBtn, { borderColor: theme.border, backgroundColor: theme.cardSubtle }]}
+                onPress={() => setTaxModalVisible(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.taxCloseBtnText, { color: theme.textSecondary }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -684,5 +896,107 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: 'monospace',
     maxHeight: 140,
+  },
+  prefRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    marginTop: 6,
+  },
+  prefTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  prefSub: {
+    fontSize: 11,
+    marginTop: 3,
+    lineHeight: 15,
+  },
+  taxExportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  taxExportBtnTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  taxExportBtnSub: {
+    fontSize: 10.5,
+    marginTop: 2,
+    lineHeight: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 18,
+  },
+  taxModalContent: {
+    width: '100%',
+    maxHeight: '85%',
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  taxModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  taxModalTitle: {
+    fontSize: 14.5,
+    fontWeight: '800',
+  },
+  taxCsvPreviewArea: {
+    borderRadius: 12,
+    borderWidth: 1.5,
+    padding: 10,
+    fontSize: 10.5,
+    fontFamily: 'monospace',
+    maxHeight: 280,
+    textAlignVertical: 'top',
+  },
+  taxModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  taxShareBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  taxShareBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  taxCloseBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taxCloseBtnText: {
+    fontWeight: '700',
+    fontSize: 13,
   },
 });
