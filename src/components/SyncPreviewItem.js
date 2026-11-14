@@ -8,6 +8,7 @@ function SyncPreviewItem({
   item,
   accountName,
   categoryName,
+  categories,
   onDismiss,
   onSetType,
   onAcceptDuplicate,
@@ -16,9 +17,11 @@ function SyncPreviewItem({
   onToggleReminder,
   onSetTypeAndReminder,
   onUpdateComment,
+  onUpdateCategory,
 }) {
   const { theme } = useFinance();
   const [expanded, setExpanded] = useState(false);
+  const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
 
   const isReady = item.status === 'ready';
   const isAcceptedDuplicate = item.status === 'accepted_duplicate';
@@ -56,6 +59,8 @@ function SyncPreviewItem({
   const isAutoDiscovered = !!item.discoveredAccount;
   const descriptionText = item.note || item.rawText || '';
   const ledgerCat = item.ledgerCategory || item.discoveredAccount?.ledgerCategory;
+  const categoryObj = (categories || []).find((c) => c.id === item.categoryId);
+  const displayCategoryName = categoryObj?.name || categoryName || 'Category';
 
   const leftBorderColor = isIgnored
     ? '#EF4444'
@@ -123,9 +128,52 @@ function SyncPreviewItem({
               {accountName || item.accountName}
             </Text>
             <Text style={[styles.dot, { color: theme.textMuted }]}>•</Text>
-            <Text style={[styles.categoryText, { color: theme.textSecondary }]} numberOfLines={1}>
-              {categoryName}
-            </Text>
+            <TouchableOpacity
+              style={[
+                styles.categoryChipBtn,
+                {
+                  backgroundColor: isReminder
+                    ? 'rgba(245, 158, 11, 0.12)'
+                    : `${categoryObj?.color || '#6366F1'}18`,
+                  borderColor: isReminder
+                    ? 'rgba(245, 158, 11, 0.3)'
+                    : `${categoryObj?.color || '#6366F1'}35`,
+                },
+              ]}
+              onPress={() => {
+                if (!isReminder) {
+                  setIsCategoryPickerOpen(!isCategoryPickerOpen);
+                }
+              }}
+              activeOpacity={isReminder ? 1 : 0.7}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              accessibilityRole="button"
+              accessibilityLabel={`Category: ${displayCategoryName}. Tap to change.`}
+            >
+              <Ionicons
+                name={categoryObj?.icon || 'pricetag-outline'}
+                size={11}
+                color={isReminder ? '#D97706' : (categoryObj?.color || theme.accent)}
+                style={{ marginRight: 3 }}
+              />
+              <Text
+                style={[
+                  styles.categoryChipBtnText,
+                  { color: isReminder ? '#D97706' : (categoryObj?.color || theme.accent) },
+                ]}
+                numberOfLines={1}
+              >
+                {displayCategoryName}
+              </Text>
+              {!isReminder && (
+                <Ionicons
+                  name={isCategoryPickerOpen ? 'chevron-up' : 'chevron-down'}
+                  size={10}
+                  color={categoryObj?.color || theme.textMuted}
+                  style={{ marginLeft: 3 }}
+                />
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -151,6 +199,78 @@ function SyncPreviewItem({
           )}
         </View>
       </View>
+
+      {/* Inline Category Picker Tray (expandable on tap) */}
+      {isCategoryPickerOpen && !isReminder && (
+        <View style={[styles.categoryPickerTray, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
+          <View style={styles.categoryPickerHeader}>
+            <Text style={[styles.categoryPickerTitle, { color: theme.textMuted }]}>
+              ASSIGN CATEGORY FOR THIS TRANSACTION
+            </Text>
+            <TouchableOpacity
+              onPress={() => setIsCategoryPickerOpen(false)}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Ionicons name="close-circle-outline" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.categoryGrid}>
+            {(categories || [])
+              .filter((c) => c.id !== 'cat_reminder' && c.id !== 'cat_adjustment')
+              .map((cat) => {
+                const isSelected = cat.id === item.categoryId;
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.categoryOptionChip,
+                      {
+                        backgroundColor: isSelected ? `${cat.color}25` : theme.card,
+                        borderColor: isSelected ? cat.color : theme.border,
+                      },
+                      isSelected && { borderWidth: 2 },
+                    ]}
+                    onPress={() => {
+                      if (onUpdateCategory) {
+                        onUpdateCategory(item, cat.id);
+                      }
+                      setIsCategoryPickerOpen(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View
+                      style={[
+                        styles.categoryOptionIconBox,
+                        { backgroundColor: `${cat.color}20` },
+                        isSelected && { backgroundColor: cat.color },
+                      ]}
+                    >
+                      <Ionicons
+                        name={cat.icon}
+                        size={12}
+                        color={isSelected ? '#FFFFFF' : cat.color}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.categoryOptionText,
+                        {
+                          color: isSelected
+                            ? theme.mode === 'dark' ? '#FFFFFF' : cat.color
+                            : theme.textSecondary,
+                          fontWeight: isSelected ? '800' : '600',
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {cat.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+          </View>
+        </View>
+      )}
 
       {/* 2. Unified 3-Segment Control: Debit | Credit | Reminder */}
       <View style={[styles.segmentedControl, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
@@ -437,6 +557,7 @@ function areEqual(prevProps, nextProps) {
   return (
     prevProps.item.id === nextProps.item.id &&
     prevProps.item.type === nextProps.item.type &&
+    prevProps.item.categoryId === nextProps.item.categoryId &&
     prevProps.item.status === nextProps.item.status &&
     prevProps.item.amount === nextProps.item.amount &&
     prevProps.item.isReminder === nextProps.item.isReminder &&
@@ -488,6 +609,60 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   categoryText: {
+    fontSize: 11,
+  },
+  categoryChipBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  categoryChipBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  categoryPickerTray: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 10,
+    marginBottom: 10,
+  },
+  categoryPickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  categoryPickerTitle: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  categoryOptionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  categoryOptionIconBox: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 5,
+  },
+  categoryOptionText: {
     fontSize: 11,
   },
   amountCol: {

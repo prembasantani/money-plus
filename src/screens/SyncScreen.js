@@ -100,6 +100,17 @@ export default function SyncScreen({ navigation }) {
     );
   }, []);
 
+  const handleUpdateCategory = useCallback((targetItem, newCategoryId) => {
+    setPreviewList((prev) =>
+      prev.map((item) => {
+        if (item.id === targetItem.id) {
+          return { ...item, categoryId: newCategoryId };
+        }
+        return item;
+      })
+    );
+  }, []);
+
   const categoryMap = useMemo(() => {
     const map = {};
     categories.forEach((c) => {
@@ -449,7 +460,7 @@ export default function SyncScreen({ navigation }) {
   };
 
   const handleCommitSync = async () => {
-    const readyItems = previewList.filter((item) => item.status === 'ready');
+    const readyItems = previewList.filter((item) => item.status === 'ready' || item.status === 'accepted_duplicate');
     if (readyItems.length === 0 && discoveredAccounts.length === 0) {
       notifyAction('No New Transactions', 'All parsed records were either duplicates or already in your ledger.', { type: 'info' });
       return;
@@ -763,10 +774,12 @@ export default function SyncScreen({ navigation }) {
                         item={item}
                         accountName={accountMap[item.accountId]?.name || item.accountName || 'Bank Account'}
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
+                        categories={categories}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
                         onSetTypeAndReminder={handleSetTypeAndReminder}
                         onUpdateComment={handleUpdateComment}
+                        onUpdateCategory={handleUpdateCategory}
                       />
                     ))}
                   </View>
@@ -813,11 +826,13 @@ export default function SyncScreen({ navigation }) {
                         item={item}
                         accountName={accountMap[item.accountId]?.name || item.accountName || 'Bank Account'}
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
+                        categories={categories}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
                         onSetTypeAndReminder={handleSetTypeAndReminder}
                         onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}
+                        onUpdateCategory={handleUpdateCategory}
                       />
                     ))}
 
@@ -876,12 +891,14 @@ export default function SyncScreen({ navigation }) {
                         item={item}
                         accountName={accountMap[item.accountId]?.name || item.accountName || 'Bank Account'}
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
+                        categories={categories}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
                         onSetTypeAndReminder={handleSetTypeAndReminder}
                         onUndoDuplicate={handleUndoDuplicate}
                         onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}
+                        onUpdateCategory={handleUpdateCategory}
                       />
                     ))}
                   </View>
@@ -928,12 +945,14 @@ export default function SyncScreen({ navigation }) {
                         item={item}
                         accountName={accountMap[item.accountId]?.name || item.accountName || 'Bank Account'}
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
+                        categories={categories}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
                         onSetTypeAndReminder={handleSetTypeAndReminder}
                         onAcceptDuplicate={handleAcceptDuplicate}
                         onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}
+                        onUpdateCategory={handleUpdateCategory}
                       />
                     ))}
                   </View>
@@ -980,12 +999,14 @@ export default function SyncScreen({ navigation }) {
                         item={item}
                         accountName={accountMap[item.accountId]?.name || item.accountName || 'Bank Account'}
                         categoryName={categoryMap[item.categoryId]?.name || 'General'}
+                        categories={categories}
                         onDismiss={handleDismissItem}
                         onSetType={handleSetType}
                         onSetTypeAndReminder={handleSetTypeAndReminder}
                         onRestoreIgnored={handleRestoreIgnored}
                         onToggleReminder={handleToggleReminder}
                         onUpdateComment={handleUpdateComment}
+                        onUpdateCategory={handleUpdateCategory}
                       />
                     ))}
                   </View>

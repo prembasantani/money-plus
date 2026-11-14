@@ -31,12 +31,16 @@ export default function TransactionDetailModal({
 
   const [comment, setComment] = useState('');
   const [selectedMode, setSelectedMode] = useState('debit'); // 'debit' | 'credit' | 'reminder'
+  const [selectedCategoryId, setSelectedCategoryId] = useState('cat_other');
+  const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
   const [copiedNote, setCopiedNote] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (transaction) {
       setComment(transaction.comment || '');
+      setSelectedCategoryId(transaction.categoryId || 'cat_other');
+      setIsCategoryPickerOpen(false);
       if (transaction.isReminder) {
         setSelectedMode('reminder');
       } else if (transaction.type === 'income') {
@@ -51,7 +55,11 @@ export default function TransactionDetailModal({
   if (!transaction) return null;
 
   const currentAccount = accounts.find((a) => a.id === transaction.accountId);
-  const currentCategory = categories.find((c) => c.id === transaction.categoryId);
+  const activeCatId = selectedMode === 'reminder' ? 'cat_reminder' : selectedCategoryId;
+  const currentCategory =
+    categories.find((c) => c.id === activeCatId) ||
+    categories.find((c) => c.id === transaction.categoryId) ||
+    categories[0];
 
   const rawAmount = parseFloat(transaction.amount) || 0;
 
@@ -71,21 +79,31 @@ export default function TransactionDetailModal({
     setTimeout(() => setCopiedNote(false), 2200);
   };
 
+  const handleModeChange = (newMode) => {
+    setSelectedMode(newMode);
+    if (newMode === 'reminder') {
+      setIsCategoryPickerOpen(false);
+    } else if (selectedCategoryId === 'cat_reminder') {
+      setSelectedCategoryId(newMode === 'credit' ? 'cat_salary' : 'cat_other');
+    }
+  };
+
   const handleSaveChanges = async () => {
     setIsSaving(true);
     try {
       const isReminder = selectedMode === 'reminder';
       const type = selectedMode === 'credit' ? 'income' : 'expense';
       let accId = transaction.accountId;
-      let catId = transaction.categoryId;
+      let catId = isReminder ? 'cat_reminder' : selectedCategoryId;
 
       if (isReminder) {
         accId = 'acc_reminders';
-        catId = 'cat_reminder';
       } else if (accId === 'acc_reminders') {
         const fallback = accounts.find((a) => a.id !== 'acc_reminders' && !a.isVirtual) || accounts[0];
         accId = fallback ? fallback.id : 'acc_cash';
-        catId = type === 'income' ? 'cat_salary' : 'cat_other';
+        if (catId === 'cat_reminder') {
+          catId = type === 'income' ? 'cat_salary' : 'cat_other';
+        }
       }
 
       const updated = {
@@ -101,7 +119,7 @@ export default function TransactionDetailModal({
       await updateTransaction(updated);
       notifyAction(
         'Transaction Updated',
-        `Saved changes as ${selectedMode.toUpperCase()} with account balances adjusted.`,
+        `Saved changes with category "${currentCategory?.name || 'Updated'}" in ${selectedMode.toUpperCase()} mode.`,
         { type: 'success', icon: 'checkmark-circle' }
       );
       onClose();
@@ -136,7 +154,8 @@ export default function TransactionDetailModal({
     (selectedMode === 'debit' && transaction.type !== 'expense');
 
   const hasCommentChanged = (transaction.comment || '') !== comment.trim();
-  const hasChanges = hasModeChanged || hasCommentChanged;
+  const hasCategoryChanged = (transaction.categoryId || 'cat_other') !== activeCatId;
+  const hasChanges = hasModeChanged || hasCommentChanged || hasCategoryChanged;
 
   return (
     <Modal
@@ -252,7 +271,7 @@ export default function TransactionDetailModal({
                       borderColor: '#DC2626',
                     },
                   ]}
-                  onPress={() => setSelectedMode('debit')}
+                  onPress={() => handleModeChange('debit')}
                   activeOpacity={0.75}
                 >
                   <Ionicons
@@ -279,7 +298,7 @@ export default function TransactionDetailModal({
                       borderColor: '#10B981',
                     },
                   ]}
-                  onPress={() => setSelectedMode('credit')}
+                  onPress={() => handleModeChange('credit')}
                   activeOpacity={0.75}
                 >
                   <Ionicons
@@ -306,7 +325,7 @@ export default function TransactionDetailModal({
                       borderColor: '#F59E0B',
                     },
                   ]}
-                  onPress={() => setSelectedMode('reminder')}
+                  onPress={() => handleModeChange('reminder')}
                   activeOpacity={0.75}
                 >
                   <Ionicons
@@ -364,24 +383,115 @@ export default function TransactionDetailModal({
 
                 <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-                {/* Category row */}
-                <View style={styles.infoRow}>
+                {/* Category row - Interactive Selector */}
+                <TouchableOpacity
+                  style={[styles.infoRow, { paddingVertical: 11 }]}
+                  onPress={() => {
+                    if (selectedMode !== 'reminder') {
+                      setIsCategoryPickerOpen(!isCategoryPickerOpen);
+                    }
+                  }}
+                  activeOpacity={selectedMode === 'reminder' ? 1 : 0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Change Category, currently ${currentCategory?.name || 'Category'}`}
+                >
                   <View style={styles.infoRowLeft}>
                     <Ionicons name="pricetag-outline" size={16} color={theme.textMuted} style={{ marginRight: 8 }} />
                     <Text style={[styles.infoRowLabel, { color: theme.textSecondary }]}>Category</Text>
                   </View>
-                  <View style={[styles.pillBadge, { backgroundColor: `${currentCategory?.color || '#6366F1'}20` }]}>
-                    <Ionicons
-                      name={currentCategory?.icon || 'pricetag-outline'}
-                      size={12}
-                      color={currentCategory?.color || theme.accent}
-                      style={{ marginRight: 4 }}
-                    />
-                    <Text style={[styles.pillBadgeText, { color: currentCategory?.color || theme.accent }]}>
-                      {currentCategory?.name || 'Category'}
-                    </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={[styles.pillBadge, { backgroundColor: `${currentCategory?.color || '#6366F1'}20` }]}>
+                      <Ionicons
+                        name={currentCategory?.icon || 'pricetag-outline'}
+                        size={12}
+                        color={currentCategory?.color || theme.accent}
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text style={[styles.pillBadgeText, { color: currentCategory?.color || theme.accent }]}>
+                        {currentCategory?.name || 'Category'}
+                      </Text>
+                    </View>
+                    {selectedMode !== 'reminder' && (
+                      <View style={[styles.categoryChevronBox, { backgroundColor: theme.cardSubtle }]}>
+                        <Ionicons
+                          name={isCategoryPickerOpen ? 'chevron-up' : 'chevron-down'}
+                          size={13}
+                          color={theme.accent}
+                        />
+                      </View>
+                    )}
                   </View>
-                </View>
+                </TouchableOpacity>
+
+                {/* Expandable Category Tray */}
+                {isCategoryPickerOpen && selectedMode !== 'reminder' && (
+                  <View style={[styles.categoryPickerTray, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
+                    <View style={styles.categoryPickerTrayHeader}>
+                      <Text style={[styles.categoryPickerTrayTitle, { color: theme.textMuted }]}>
+                        CHOOSE CATEGORY
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => setIsCategoryPickerOpen(false)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close-circle-outline" size={16} color={theme.textMuted} />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.categoryChipsGrid}>
+                      {categories
+                        .filter((c) => c.id !== 'cat_reminder' && c.id !== 'cat_adjustment')
+                        .map((cat) => {
+                          const isSelected = cat.id === activeCatId;
+                          return (
+                            <TouchableOpacity
+                              key={cat.id}
+                              style={[
+                                styles.categoryChip,
+                                {
+                                  backgroundColor: isSelected ? `${cat.color}25` : theme.card,
+                                  borderColor: isSelected ? cat.color : theme.border,
+                                },
+                                isSelected && { borderWidth: 2 },
+                              ]}
+                              onPress={() => {
+                                setSelectedCategoryId(cat.id);
+                                setIsCategoryPickerOpen(false);
+                              }}
+                              activeOpacity={0.75}
+                            >
+                              <View
+                                style={[
+                                  styles.categoryChipIcon,
+                                  { backgroundColor: `${cat.color}20` },
+                                  isSelected && { backgroundColor: cat.color },
+                                ]}
+                              >
+                                <Ionicons
+                                  name={cat.icon}
+                                  size={13}
+                                  color={isSelected ? '#FFFFFF' : cat.color}
+                                />
+                              </View>
+                              <Text
+                                style={[
+                                  styles.categoryChipText,
+                                  {
+                                    color: isSelected
+                                      ? theme.mode === 'dark' ? '#FFFFFF' : cat.color
+                                      : theme.textSecondary,
+                                    fontWeight: isSelected ? '800' : '600',
+                                  },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {cat.name}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                    </View>
+                  </View>
+                )}
 
                 <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
@@ -653,6 +763,56 @@ const styles = StyleSheet.create({
   pillBadgeText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  categoryChevronBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  categoryPickerTray: {
+    borderTopWidth: 1,
+    padding: 12,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+  },
+  categoryPickerTrayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  categoryPickerTrayTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  categoryChipsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
+  categoryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    minHeight: 34,
+  },
+  categoryChipIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  categoryChipText: {
+    fontSize: 11.5,
   },
   divider: {
     height: 1,

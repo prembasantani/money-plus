@@ -95,9 +95,9 @@ jobs:
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
         with:
           tag_name: latest
-          name: ${{ github.event.inputs.release_title || 'MoneyFollows Latest APK Build (v1.0.19)' }}
+          name: ${{ github.event.inputs.release_title || 'MoneyFollows Latest APK Build (v1.0.20)' }}
           body: |
-            ### 📱 MoneyFollows Android APK (v1.0.19)
+            ### 📱 MoneyFollows Android APK (v1.0.20)
             * **Build Date:** ${{ github.event.head_commit.timestamp || 'Manual Dispatch' }}
             * **Commit:** ${{ github.sha }}
             * **Package:** `com.moneyfollows.app`
