@@ -22,6 +22,7 @@ import SkeletonLoader from '../components/SkeletonLoader';
 import LoadingOverlay from '../components/LoadingOverlay';
 import { confirmAction, notifyAction } from '../utils/dialogs';
 import { formatCurrency } from '../utils/formatters';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isDeviceSmsAvailable, readDeviceSms } from '../../modules/sms-reader';
 import { parseDeviceSmsList } from '../utils/parser';
 import { runDeduplicationEngine } from '../utils/deduplication';
@@ -49,7 +50,27 @@ export default function DashboardScreen({ navigation }) {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTxType, setSelectedTxType] = useState('ALL'); // ALL, EXPENSE, INCOME, TRANSFER
-  const [selectedMonthFilter, setSelectedMonthFilter] = useState('ALL'); // 'ALL' | 'THIS_MONTH' | 'PREV_MONTH'
+  const [selectedMonthFilter, setSelectedMonthFilterState] = useState('THIS_MONTH'); // Defaults to 'THIS_MONTH'
+
+  // Persist user selected month filter across app reopens
+  useEffect(() => {
+    async function loadSavedMonthFilter() {
+      try {
+        const saved = await AsyncStorage.getItem('@money_plus_dashboard_month_filter');
+        if (saved && (saved === 'ALL' || saved === 'THIS_MONTH' || saved === 'PREV_MONTH')) {
+          setSelectedMonthFilterState(saved);
+        }
+      } catch (e) {
+        // Defaults to THIS_MONTH
+      }
+    }
+    loadSavedMonthFilter();
+  }, []);
+
+  const setSelectedMonthFilter = useCallback((val) => {
+    setSelectedMonthFilterState(val);
+    AsyncStorage.setItem('@money_plus_dashboard_month_filter', val).catch(() => {});
+  }, []);
   const [selectedDateFilter, setSelectedDateFilter] = useState(null); // 'YYYY-MM-DD' or null
   const [selectedAccountFilter, setSelectedAccountFilter] = useState(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
@@ -101,7 +122,7 @@ export default function DashboardScreen({ navigation }) {
     return map;
   }, [accounts]);
 
-  // Perform SMS inbox scan on app-open or resume
+  // Perform incremental high-watermark SMS inbox scan on app-open or resume
   const performAppOpenSync = useCallback(async (isUserInitiated = false) => {
     if (!autoSyncEnabled || !isDeviceSmsAvailable()) {
       return;
@@ -119,9 +140,32 @@ export default function DashboardScreen({ navigation }) {
     isSyncInProgressRef.current = true;
     lastSyncTimeRef.current = nowMs;
 
+    // 1. Compute High-Watermark Cutoff Date
+    // Considers the latest transaction date currently in the ledger (00:00:00 of that day)
+    // and only scans from that day onwards until today.
+    let latestTxTime = 0;
+    for (const tx of transactions) {
+      const t = new Date(tx.date).getTime();
+      if (!isNaN(t) && t > latestTxTime) {
+        latestTxTime = t;
+      }
+    }
+
+    let cutoffDate;
+    if (latestTxTime > 0) {
+      const d = new Date(latestTxTime);
+      cutoffDate = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+    } else {
+      // Fallback: If no transactions in ledger yet, default to start of current month
+      const currentDate = new Date();
+      cutoffDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1, 0, 0, 0, 0);
+    }
+    const cutoffTimestamp = cutoffDate.getTime();
+    const cutoffLabel = cutoffDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+
     setSyncBanner({
       status: 'scanning',
-      message: 'Checking inbox for new bank transactions...',
+      message: `Checking transactions since ${cutoffLabel}...`,
       count: 0,
       candidates: [],
       newAccounts: [],
@@ -139,8 +183,24 @@ export default function DashboardScreen({ navigation }) {
         return;
       }
 
+      // 2. High-Watermark Filter: Strictly restrict SMS to latest transaction date onwards
+      const eligibleSms = recentSms.filter((sms) => {
+        const smsDate = Number(sms.date) || 0;
+        return smsDate >= cutoffTimestamp;
+      });
+
+      if (eligibleSms.length === 0) {
+        setSyncBanner({
+          status: 'up_to_date',
+          message: `Ledger up to date · No new transactions since ${cutoffLabel}`,
+          count: 0,
+        });
+        setTimeout(() => setSyncBanner((prev) => (prev?.status === 'up_to_date' ? null : prev)), 2500);
+        return;
+      }
+
       const { transactions: parsedItems, newAccounts } = parseDeviceSmsList(
-        recentSms,
+        eligibleSms,
         accounts,
         blacklistedFingerprints
       );
@@ -148,7 +208,7 @@ export default function DashboardScreen({ navigation }) {
       if (parsedItems.length === 0) {
         setSyncBanner({
           status: 'up_to_date',
-          message: 'Ledger up to date · No new bank transactions',
+          message: `Ledger up to date · No new transactions since ${cutoffLabel}`,
           count: 0,
         });
         setTimeout(() => setSyncBanner((prev) => (prev?.status === 'up_to_date' ? null : prev)), 2500);
@@ -168,7 +228,7 @@ export default function DashboardScreen({ navigation }) {
       if (candidates.length > 0) {
         setSyncBanner({
           status: 'found',
-          message: `✨ ${candidates.length} new bank transaction${candidates.length > 1 ? 's' : ''} found`,
+          message: `✨ ${candidates.length} new transaction${candidates.length > 1 ? 's' : ''} found (since ${cutoffLabel})`,
           count: candidates.length,
           candidates,
           newAccounts,
@@ -176,7 +236,7 @@ export default function DashboardScreen({ navigation }) {
       } else {
         setSyncBanner({
           status: 'up_to_date',
-          message: 'Ledger is up to date · No new transactions',
+          message: `Ledger is up to date · Checked since ${cutoffLabel}`,
           count: 0,
         });
         setTimeout(() => setSyncBanner((prev) => (prev?.status === 'up_to_date' ? null : prev)), 2500);

@@ -886,4 +886,37 @@ if (!remAcc || remAcc.balance !== 0) {
 }
 console.log('  ✅ Verified: Clean slate defaults confirmed (0 seed transactions, Cash ₹0.00, Reminders ₹0.00, 0 dummy bank accounts).');
 
+// --- 37. Testing Incremental High-Watermark SMS Date Cutoff ---
+console.log('\n--- 37. Testing Incremental High-Watermark SMS Date Cutoff ---');
+const sampleExistingLedger = [
+  { id: 'tx_old_1', date: new Date(2026, 9, 15, 10, 0).toISOString(), amount: 500 },
+  { id: 'tx_old_2', date: new Date(2026, 10, 10, 14, 0).toISOString(), amount: 1200 },
+  { id: 'tx_latest', date: new Date(2026, 10, 12, 18, 0).toISOString(), amount: 850 },
+];
+
+let latestTime = 0;
+for (const tx of sampleExistingLedger) {
+  const t = new Date(tx.date).getTime();
+  if (!isNaN(t) && t > latestTime) latestTime = t;
+}
+
+const latestDateObj = new Date(latestTime);
+const cutoffDateObj = new Date(latestDateObj.getFullYear(), latestDateObj.getMonth(), latestDateObj.getDate(), 0, 0, 0, 0);
+const cutoffMs = cutoffDateObj.getTime();
+
+const rawSmsStream = [
+  { address: 'HDFCBK', body: 'Rs.300 debited from A/C **1234 on 05-Nov-26', date: new Date(2026, 10, 5, 9, 0).getTime() },
+  { address: 'HDFCBK', body: 'Rs.500 debited from A/C **1234 on 11-Nov-26', date: new Date(2026, 10, 11, 12, 0).getTime() },
+  { address: 'HDFCBK', body: 'Rs.850 debited from A/C **1234 on 12-Nov-26', date: new Date(2026, 10, 12, 10, 0).getTime() },
+  { address: 'HDFCBK', body: 'Rs.950 debited from A/C **1234 on 13-Nov-26', date: new Date(2026, 10, 13, 15, 0).getTime() },
+  { address: 'HDFCBK', body: 'Rs.200 debited from A/C **1234 on 14-Nov-26', date: new Date(2026, 10, 14, 11, 0).getTime() },
+];
+
+const incrementalSms = rawSmsStream.filter((s) => Number(s.date) >= cutoffMs);
+if (incrementalSms.length !== 3) {
+  console.error('❌ Failed: Incremental sync must only include SMS from latest transaction date (12 Nov) onwards! Found:', incrementalSms.length);
+  process.exit(1);
+}
+console.log('  ✅ Verified: High-watermark cutoff strictly excludes historical SMS prior to the latest transaction date (12 Nov onwards only).');
+
 console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering, Reminders, Tax Export & Sorting Unit Tests Passed Successfully!\n');
