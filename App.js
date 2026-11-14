@@ -18,8 +18,8 @@ function MainApp() {
         <View style={styles.bootLogoBadge}>
           <Ionicons name="wallet" size={32} color="#6366F1" />
         </View>
-        <Text style={styles.bootAppName}>Money+</Text>
-        <Text style={styles.bootTagline}>Cute Offline Expense Tracker</Text>
+        <Text style={styles.bootAppName}>MoneyFollows</Text>
+        <Text style={styles.bootTagline}>Offline Personal Finance & Double-Entry Ledger</Text>
         <View style={{ marginTop: 24 }}>
           <ActivityIndicator size="small" color="#6366F1" />
         </View>

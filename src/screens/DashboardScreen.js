@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   Modal,
   Platform,
+  AppState,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -55,12 +57,14 @@ export default function DashboardScreen({ navigation }) {
   const [displayLimit, setDisplayLimit] = useState(40);
   const [groupingMode, setGroupingMode] = useState('DAILY'); // 'DAILY' | 'WEEKLY' | 'MONTHLY'
 
-  // Smart App-Open SMS Sync States
-  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
-  const [autoSyncPillVisible, setAutoSyncPillVisible] = useState(false);
+  // Smart App-Open SMS Sync Banner State
+  // { status: 'scanning' | 'found' | 'up_to_date' | 'updating' | 'error', message: string, count: number, candidates: [], newAccounts: [] }
+  const [syncBanner, setSyncBanner] = useState(null);
   const [isLoadingOverlay, setIsLoadingOverlay] = useState(false);
   const [loadingOverlayText, setLoadingOverlayText] = useState('');
-  const [hasCheckedOnOpen, setHasCheckedOnOpen] = useState(false);
+  const appStateRef = useRef(AppState.currentState);
+  const lastSyncTimeRef = useRef(0);
+  const isSyncInProgressRef = useRef(false);
 
   // Comment Modal state
   const [commentModalTx, setCommentModalTx] = useState(null);
@@ -97,93 +101,147 @@ export default function DashboardScreen({ navigation }) {
     return map;
   }, [accounts]);
 
-  // Smart App-Open SMS Sync (runs only if user has synced at least once in the past)
-  useEffect(() => {
-    if (hasCheckedOnOpen || !hasSyncedOnce || !autoSyncEnabled || !isDeviceSmsAvailable()) {
+  // Perform SMS inbox scan on app-open or resume
+  const performAppOpenSync = useCallback(async (isUserInitiated = false) => {
+    if (!autoSyncEnabled || !isDeviceSmsAvailable()) {
       return;
     }
 
-    setHasCheckedOnOpen(true);
-    let isCancelled = false;
-
-    async function checkSmsOnOpen() {
-      try {
-        setIsAutoSyncing(true);
-        setAutoSyncPillVisible(true);
-
-        const recentSms = await readDeviceSms(500);
-        if (isCancelled || !recentSms || recentSms.length === 0) {
-          setIsAutoSyncing(false);
-          setAutoSyncPillVisible(false);
-          return;
-        }
-
-        const { transactions: parsedItems, newAccounts } = parseDeviceSmsList(
-          recentSms,
-          accounts,
-          blacklistedFingerprints
-        );
-
-        if (parsedItems.length === 0) {
-          setIsAutoSyncing(false);
-          setAutoSyncPillVisible(false);
-          return;
-        }
-
-        const evaluated = runDeduplicationEngine(
-          parsedItems,
-          transactions,
-          blacklistedFingerprints
-        );
-
-        const candidates = evaluated.filter(
-          (i) => i.status === 'ready' || i.status === 'accepted_duplicate'
-        );
-
-        setIsAutoSyncing(false);
-        setAutoSyncPillVisible(false);
-
-        if (candidates.length > 0 && !isCancelled) {
-          confirmAction(
-            `✨ ${candidates.length} New SMS Transactions Found`,
-            `Discovered ${candidates.length} new bank transactions in your inbox. Load and refresh your ledger balances now?`,
-            async () => {
-              setIsLoadingOverlay(true);
-              setLoadingOverlayText('Updating ledger balances...');
-              try {
-                const count = await batchAddTransactions(candidates, newAccounts);
-                notifyAction('Ledger Updated!', `Imported ${count} new transactions.`, { type: 'success', icon: 'sparkles' });
-              } catch (err) {
-                notifyAction('Sync Notice', err.message || 'Could not import transactions.', { type: 'warning' });
-              } finally {
-                setIsLoadingOverlay(false);
-              }
-            },
-            {
-              confirmText: 'Load & Refresh Now',
-              cancelText: 'Later',
-              icon: 'cloud-download-outline',
-              type: 'info',
-            }
-          );
-        }
-      } catch (err) {
-        console.log('Auto-sync inbox check notice:', err);
-      } finally {
-        setIsAutoSyncing(false);
-        setAutoSyncPillVisible(false);
-      }
+    // Debounce to prevent multiple triggers within 8 seconds
+    const nowMs = Date.now();
+    if (!isUserInitiated && nowMs - lastSyncTimeRef.current < 8000) {
+      return;
+    }
+    if (isSyncInProgressRef.current) {
+      return;
     }
 
+    isSyncInProgressRef.current = true;
+    lastSyncTimeRef.current = nowMs;
+
+    setSyncBanner({
+      status: 'scanning',
+      message: 'Checking inbox for new bank transactions...',
+      count: 0,
+      candidates: [],
+      newAccounts: [],
+    });
+
+    try {
+      const recentSms = await readDeviceSms(1000);
+      if (!recentSms || recentSms.length === 0) {
+        setSyncBanner({
+          status: 'up_to_date',
+          message: 'Ledger up to date · No SMS messages found',
+          count: 0,
+        });
+        setTimeout(() => setSyncBanner((prev) => (prev?.status === 'up_to_date' ? null : prev)), 2500);
+        return;
+      }
+
+      const { transactions: parsedItems, newAccounts } = parseDeviceSmsList(
+        recentSms,
+        accounts,
+        blacklistedFingerprints
+      );
+
+      if (parsedItems.length === 0) {
+        setSyncBanner({
+          status: 'up_to_date',
+          message: 'Ledger up to date · No new bank transactions',
+          count: 0,
+        });
+        setTimeout(() => setSyncBanner((prev) => (prev?.status === 'up_to_date' ? null : prev)), 2500);
+        return;
+      }
+
+      const evaluated = runDeduplicationEngine(
+        parsedItems,
+        transactions,
+        blacklistedFingerprints
+      );
+
+      const candidates = evaluated.filter(
+        (i) => i.status === 'ready' || i.status === 'accepted_duplicate'
+      );
+
+      if (candidates.length > 0) {
+        setSyncBanner({
+          status: 'found',
+          message: `✨ ${candidates.length} new bank transaction${candidates.length > 1 ? 's' : ''} found`,
+          count: candidates.length,
+          candidates,
+          newAccounts,
+        });
+      } else {
+        setSyncBanner({
+          status: 'up_to_date',
+          message: 'Ledger is up to date · No new transactions',
+          count: 0,
+        });
+        setTimeout(() => setSyncBanner((prev) => (prev?.status === 'up_to_date' ? null : prev)), 2500);
+      }
+    } catch (err) {
+      console.log('App-open sync notice:', err);
+      setSyncBanner({
+        status: 'error',
+        message: err.message || 'Could not complete inbox scan',
+      });
+      setTimeout(() => setSyncBanner((prev) => (prev?.status === 'error' ? null : prev)), 3000);
+    } finally {
+      isSyncInProgressRef.current = false;
+    }
+  }, [autoSyncEnabled, accounts, transactions, blacklistedFingerprints]);
+
+  // Apply discovered transactions directly from bottom banner
+  const handleApplySyncTransactions = useCallback(async (candidates, newAccounts) => {
+    if (!candidates || candidates.length === 0) return;
+    setSyncBanner({
+      status: 'updating',
+      message: 'Updating ledger & balances...',
+      count: candidates.length,
+    });
+    try {
+      const count = await batchAddTransactions(candidates, newAccounts);
+      setSyncBanner({
+        status: 'up_to_date',
+        message: `✅ Imported ${count} new transaction${count > 1 ? 's' : ''}! Balances updated.`,
+        count,
+      });
+      setTimeout(() => setSyncBanner(null), 3000);
+    } catch (err) {
+      setSyncBanner({
+        status: 'error',
+        message: err.message || 'Failed to update ledger',
+      });
+      setTimeout(() => setSyncBanner(null), 3000);
+    }
+  }, [batchAddTransactions]);
+
+  // 1. Initial Launch / Cold Start Trigger
+  useEffect(() => {
     const timer = setTimeout(() => {
-      checkSmsOnOpen();
-    }, 1500);
+      performAppOpenSync();
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [performAppOpenSync]);
+
+  // 2. App Resume / Warm Start Trigger (Runs every time app returns from background)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        performAppOpenSync();
+      }
+      appStateRef.current = nextAppState;
+    });
 
     return () => {
-      isCancelled = true;
-      clearTimeout(timer);
+      subscription.remove();
     };
-  }, [hasCheckedOnOpen, hasSyncedOnce, autoSyncEnabled, accounts, transactions, blacklistedFingerprints]);
+  }, [performAppOpenSync]);
 
   // Filter transactions
   const filteredTransactions = useMemo(() => {
@@ -423,22 +481,6 @@ export default function DashboardScreen({ navigation }) {
           </View>
         </View>
 
-        {/* Floating Auto-Sync Notification Pill */}
-        {autoSyncPillVisible && (
-          <View style={[styles.autoSyncPill, { backgroundColor: theme.card, borderColor: theme.primary }]}>
-            <Ionicons name="sync" size={14} color={theme.primary} style={{ marginRight: 6 }} />
-            <Text style={[styles.autoSyncPillText, { color: theme.text }]} numberOfLines={1}>
-              Checking SMS for new transactions...
-            </Text>
-            <TouchableOpacity
-              onPress={() => setAutoSyncPillVisible(false)}
-              style={[styles.autoSyncPillDismiss, { backgroundColor: theme.primaryLight }]}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={[styles.autoSyncPillDismissText, { color: theme.accent }]}>Background ✕</Text>
-            </TouchableOpacity>
-          </View>
-        )}
 
         {/* Net Worth Card (Balance hidden by default as requested) */}
         <NetWorthCard
@@ -941,6 +983,75 @@ export default function DashboardScreen({ navigation }) {
         icon="sync-outline"
         iconColor={theme.primary}
       />
+
+      {/* Persistent Bottom Floating Sync Alert Banner */}
+      {syncBanner && (
+        <View
+          style={[
+            styles.bottomSyncBanner,
+            {
+              backgroundColor: theme.card,
+              borderColor:
+                syncBanner.status === 'found'
+                  ? '#10B981'
+                  : syncBanner.status === 'error'
+                  ? '#EF4444'
+                  : theme.primary,
+            },
+          ]}
+        >
+          <View style={styles.bottomSyncContent}>
+            {syncBanner.status === 'scanning' || syncBanner.status === 'updating' ? (
+              <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: 10 }} />
+            ) : syncBanner.status === 'found' ? (
+              <Ionicons name="sparkles" size={20} color="#10B981" style={{ marginRight: 10 }} />
+            ) : syncBanner.status === 'error' ? (
+              <Ionicons name="alert-circle" size={20} color="#EF4444" style={{ marginRight: 10 }} />
+            ) : (
+              <Ionicons name="checkmark-circle" size={20} color="#10B981" style={{ marginRight: 10 }} />
+            )}
+
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={[styles.bottomSyncText, { color: theme.text }]} numberOfLines={2}>
+                {syncBanner.message}
+              </Text>
+              {syncBanner.status === 'scanning' && (
+                <Text style={[styles.bottomSyncSubtext, { color: theme.textSecondary }]}>
+                  Live inbox check on app launch
+                </Text>
+              )}
+            </View>
+
+            {syncBanner.status === 'found' ? (
+              <View style={styles.bottomSyncActions}>
+                <TouchableOpacity
+                  style={[styles.bottomSyncBtn, { backgroundColor: theme.primary }]}
+                  onPress={() => handleApplySyncTransactions(syncBanner.candidates, syncBanner.newAccounts)}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.bottomSyncBtnText}>Load Now</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.bottomSyncDismiss}
+                  onPress={() => setSyncBanner(null)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={18} color={theme.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.bottomSyncDismiss}
+                onPress={() => setSyncBanner(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1222,30 +1333,63 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '700',
   },
-  autoSyncPill: {
+  bottomSyncBanner: {
+    position: 'absolute',
+    bottom: 12,
+    left: 14,
+    right: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 9999,
+  },
+  bottomSyncContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 20,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1.5,
+    justifyContent: 'space-between',
   },
-  autoSyncPillText: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '600',
+  bottomSyncText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    lineHeight: 17,
   },
-  autoSyncPillDismiss: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+  bottomSyncSubtext: {
+    fontSize: 11,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  bottomSyncActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginLeft: 6,
   },
-  autoSyncPillDismissText: {
-    fontSize: 11,
+  bottomSyncBtn: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginRight: 6,
+    minHeight: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bottomSyncBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
     fontWeight: '700',
+  },
+  bottomSyncDismiss: {
+    padding: 8,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 40,
+    minHeight: 40,
   },
   groupingHeaderRow: {
     marginHorizontal: 20,

@@ -3,9 +3,22 @@ import { PermissionsAndroid, Platform } from 'react-native';
 
 const SmsReader = requireOptionalNativeModule('SmsReader');
 
+export async function checkSmsPermission() {
+  if (Platform.OS !== 'android') return false;
+  try {
+    return await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
+  } catch (err) {
+    return false;
+  }
+}
+
 export async function requestSmsPermission() {
   if (Platform.OS !== 'android') return false;
   try {
+    const alreadyGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
+    if (alreadyGranted) {
+      return true;
+    }
     const granted = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.READ_SMS,
       {
