@@ -182,26 +182,30 @@ export default function ReportsScreen({ navigation }) {
 
     filteredTx.forEach((tx) => {
       const amt = tx.amount || 0;
-      if (tx.type === 'expense') {
-        exp += amt;
+      const isTransfer = tx.categoryId === 'cat_transfer';
 
-        // Category
-        const cId = tx.categoryId || 'cat_other';
-        if (!catTotals[cId]) catTotals[cId] = { amount: 0, count: 0 };
-        catTotals[cId].amount += amt;
-        catTotals[cId].count += 1;
+      if (!isTransfer) {
+        if (tx.type === 'expense') {
+          exp += amt;
 
-        // Merchant
-        const m = (tx.counterparty || 'General Expense').trim();
-        if (!merchantTotals[m]) merchantTotals[m] = { amount: 0, count: 0 };
-        merchantTotals[m].amount += amt;
-        merchantTotals[m].count += 1;
+          // Category
+          const cId = tx.categoryId || 'cat_other';
+          if (!catTotals[cId]) catTotals[cId] = { amount: 0, count: 0 };
+          catTotals[cId].amount += amt;
+          catTotals[cId].count += 1;
 
-        // Day
-        const dKey = new Date(tx.date).toISOString().split('T')[0];
-        dayTotals[dKey] = (dayTotals[dKey] || 0) + amt;
-      } else if (tx.type === 'income') {
-        inc += amt;
+          // Merchant
+          const m = (tx.counterparty || 'General Expense').trim();
+          if (!merchantTotals[m]) merchantTotals[m] = { amount: 0, count: 0 };
+          merchantTotals[m].amount += amt;
+          merchantTotals[m].count += 1;
+
+          // Day
+          const dKey = new Date(tx.date).toISOString().split('T')[0];
+          dayTotals[dKey] = (dayTotals[dKey] || 0) + amt;
+        } else if (tx.type === 'income') {
+          inc += amt;
+        }
       }
 
       // Account activity

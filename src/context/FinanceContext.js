@@ -806,18 +806,24 @@ export function FinanceProvider({ children }) {
   const totalWalletCash = accountsByType.wallet.reduce((sum, a) => sum + (a.balance || 0), 0) +
     accountsByType.cash.reduce((sum, a) => sum + (a.balance || 0), 0);
 
-  // Monthly stats computation
+  // Monthly stats computation (strictly Calendar Month: 1st 00:00:00 to last day 23:59:59)
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
+  const startOfCurrentMonth = new Date(currentYear, currentMonth, 1, 0, 0, 0, 0);
+  const endOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
+  const currentMonthName = now.toLocaleDateString('en-IN', { month: 'short' });
 
   let monthlyInflow = 0;
   let monthlyOutflow = 0;
 
   transactions.forEach((tx) => {
     if (tx.isReminder) return; // Reminders do not alter monthly inflow/outflow
+    // CRITICAL: Inter-ledger transfers are balance-neutral and NOT external income/expense!
+    if (tx.categoryId === 'cat_transfer') return;
+
     const txDate = new Date(tx.date);
-    if (txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear) {
+    if (txDate >= startOfCurrentMonth && txDate <= endOfCurrentMonth) {
       if (tx.type === 'income') {
         monthlyInflow += tx.amount;
       } else if (tx.type === 'expense') {
@@ -841,6 +847,7 @@ export function FinanceProvider({ children }) {
         accountsByType,
         monthlyInflow,
         monthlyOutflow,
+        currentMonthName,
         addTransaction,
         batchAddTransactions,
         deleteTransaction,

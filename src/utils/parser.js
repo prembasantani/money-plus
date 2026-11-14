@@ -656,6 +656,106 @@ export function extractCounterparty(text, type = 'expense') {
 }
 
 /**
+ * Generate a smart, readable 2-3 word activity tag/comment
+ */
+export function generateActivityComment(counterparty = '', categoryId = '', rawText = '', type = 'expense', isReminder = false) {
+  const text = `${counterparty} ${rawText}`.toLowerCase();
+  const cp = (counterparty || '').toLowerCase();
+
+  if (isReminder) {
+    if (text.includes('autopay') || text.includes('mandate')) return 'AutoPay Mandate';
+    if (text.includes('policy') || text.includes('insurance') || text.includes('metlife')) return 'Insurance Premium Notice';
+    return 'Payment Reminder';
+  }
+
+  // 1. Food Delivery, Sweets & Dining
+  if (cp.includes('swiggy') || text.includes('swiggy')) return 'Food Delivery (Swiggy)';
+  if (cp.includes('zomato') || text.includes('zomato')) return 'Food Delivery (Zomato)';
+  if (text.includes('sweet') || text.includes('mithai') || text.includes('halwai') || text.includes('bikaner') || text.includes('agarwal sweets')) {
+    return 'Sweet Shop / Desserts';
+  }
+  if (text.includes('chai') || text.includes('tea') || text.includes('coffee') || text.includes('cafe') || text.includes('starbucks') || text.includes('barista')) {
+    return 'Chai / Cafe';
+  }
+  if (text.includes('biryani') || text.includes('restaurant') || text.includes('dhaba') || text.includes('kitchen') || text.includes('pizzeria') || text.includes('domino') || text.includes('pizza') || text.includes('burger')) {
+    return 'Dining / Restaurant';
+  }
+
+  // 2. Groceries & Quick Commerce
+  if (cp.includes('blinkit') || text.includes('blinkit')) return 'Groceries (Blinkit)';
+  if (cp.includes('zepto') || text.includes('zepto')) return 'Groceries (Zepto)';
+  if (cp.includes('instamart') || text.includes('instamart')) return 'Groceries (Instamart)';
+  if (cp.includes('bigbasket') || text.includes('bbdaily')) return 'Groceries (BigBasket)';
+  if (text.includes('dmart') || text.includes('d-mart') || text.includes('reliance fresh') || text.includes('supermarket') || text.includes('kirana') || text.includes('provisions')) {
+    return 'Supermarket / Grocery';
+  }
+
+  // 3. Transport & Commute
+  if (cp.includes('uber') || text.includes('uber')) return 'Transport (Uber)';
+  if (cp.includes('ola') || text.includes('ola cabs') || text.includes('ani technologies')) return 'Transport (Ola)';
+  if (cp.includes('rapido') || text.includes('rapido')) return 'Transport (Rapido)';
+  if (text.includes('metro') || text.includes('dmrc') || text.includes('bmrc') || text.includes('mmrcl')) return 'Metro Transit';
+  if (text.includes('irctc') || text.includes('railway') || text.includes('train')) return 'Train Booking (IRCTC)';
+  if (text.includes('flight') || text.includes('makemytrip') || text.includes('indigo') || text.includes('air india') || text.includes('cleartrip')) return 'Flight Booking';
+
+  // 4. Fuel & Utilities
+  if (text.includes('petrol') || text.includes('fuel') || text.includes('hpcl') || text.includes('iocl') || text.includes('bpcl') || text.includes('shell')) {
+    return 'Fuel / Petrol';
+  }
+  if (text.includes('airtel') || text.includes('jio') || text.includes('vodafone') || text.includes('vi recharge') || text.includes('mobile recharge')) {
+    return 'Mobile Recharge';
+  }
+  if (text.includes('bescom') || text.includes('electricity') || text.includes('power') || text.includes('water board') || text.includes('piped gas') || text.includes('broadband')) {
+    return 'Utility Bill Payment';
+  }
+
+  // 5. Shopping & Retail
+  if (cp.includes('amazon') || text.includes('amazon')) return 'Online Shopping (Amazon)';
+  if (cp.includes('flipkart') || text.includes('flipkart')) return 'Online Shopping (Flipkart)';
+  if (cp.includes('myntra') || text.includes('myntra')) return 'Apparel Shopping (Myntra)';
+  if (cp.includes('tira') || text.includes('nykaa')) return 'Beauty / Cosmetics';
+
+  // 6. Medical & Pharmacy
+  if (text.includes('apollo') || text.includes('pharmacy') || text.includes('chemist') || text.includes('medplus') || text.includes('1mg') || text.includes('hospital') || text.includes('clinic') || text.includes('dr.')) {
+    return 'Medical & Pharmacy';
+  }
+
+  // 7. Entertainment & Subscriptions
+  if (cp.includes('youtube') || text.includes('youtube')) return 'YouTube Subscription';
+  if (cp.includes('netflix') || text.includes('netflix')) return 'Netflix Subscription';
+  if (cp.includes('spotify') || text.includes('spotify')) return 'Spotify Subscription';
+  if (cp.includes('prime') || text.includes('prime video')) return 'Amazon Prime';
+  if (text.includes('pvr') || text.includes('inox') || text.includes('bookmyshow') || text.includes('cinema') || text.includes('movie')) return 'Movie / Cinema';
+
+  // 8. Income & Transfers
+  if (type === 'income') {
+    if (text.includes('salary') || text.includes('payroll') || text.includes('corp') || text.includes('infotech')) return 'Monthly Salary Credit';
+    if (text.includes('cashback') || text.includes('reward')) return 'Cashback Reward';
+    if (text.includes('refund')) return 'Merchant Refund';
+    if (text.includes('interest')) return 'Bank Interest Credit';
+    if (text.includes('dividend')) return 'Dividend Credit';
+    return 'Account Inflow';
+  }
+
+  if (categoryId === 'cat_transfer' || text.includes('credit card bill') || text.includes('bbps')) {
+    return 'Card Bill Payment';
+  }
+
+  // 9. Generic UPI payment / person-to-person
+  if (text.includes('upi') || text.includes('vpa') || text.includes('gpay') || text.includes('phonepe') || text.includes('paytm')) {
+    return 'UPI Payment';
+  }
+
+  // Fallbacks based on category
+  if (categoryId === 'cat_groceries') return 'Grocery Shopping';
+  if (categoryId === 'cat_dining') return 'Dining & Food';
+  if (categoryId === 'cat_transport') return 'Local Transport';
+  if (categoryId === 'cat_shopping') return 'Retail Purchase';
+
+  return 'General Expense';
+}
+
+/**
  * Parse an individual SMS / notification message
  * Returns structured transaction object and any newly discovered account
  */
@@ -871,6 +971,8 @@ export function parseSingleMessage(
     uncertaintyReason = 'Refund or payment reversal';
   }
 
+  const comment = generateActivityComment(counterparty, categoryId, text, type, isReminder);
+
   return {
     id: `tx_parsed_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     amount,
@@ -881,6 +983,7 @@ export function parseSingleMessage(
     ledgerCategory: accountResult.ledgerCategory,
     categoryId,
     counterparty,
+    comment,
     date,
     note: text,
     rawText: text,

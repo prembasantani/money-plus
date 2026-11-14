@@ -4,9 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { formatCurrency } from '../utils/formatters';
 import { useFinance } from '../context/FinanceContext';
 
-export default function NetWorthCard({ totalNetWorth, monthlyInflow, monthlyOutflow, onSyncPress, onAdjustPress }) {
-  const { theme } = useFinance();
+export default function NetWorthCard({ totalNetWorth, monthlyInflow, monthlyOutflow, onSyncPress, onAdjustPress, monthLabel }) {
+  const { theme, currentMonthName } = useFinance();
   const [showBalance, setShowBalance] = useState(false);
+  const activeMonth = monthLabel || currentMonthName || '';
 
   return (
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.primary, borderWidth: 2 }]}>
@@ -46,7 +47,9 @@ export default function NetWorthCard({ totalNetWorth, monthlyInflow, monthlyOutf
             <Ionicons name="arrow-down-outline" size={14} color={theme.success} />
           </View>
           <View>
-            <Text style={[styles.statLabel, { color: theme.textMuted }]}>Month Income</Text>
+            <Text style={[styles.statLabel, { color: theme.textMuted }]}>
+              {activeMonth ? `${activeMonth} Income` : 'Month Income'}
+            </Text>
             <Text style={[styles.statIncome, { color: theme.success }]}>
               {showBalance ? `+${formatCurrency(monthlyInflow)}` : '••••'}
             </Text>
@@ -60,7 +63,9 @@ export default function NetWorthCard({ totalNetWorth, monthlyInflow, monthlyOutf
             <Ionicons name="arrow-up-outline" size={14} color={theme.danger} />
           </View>
           <View>
-            <Text style={[styles.statLabel, { color: theme.textMuted }]}>Month Spent</Text>
+            <Text style={[styles.statLabel, { color: theme.textMuted }]}>
+              {activeMonth ? `${activeMonth} Spent` : 'Month Spent'}
+            </Text>
             <Text style={[styles.statExpense, { color: theme.danger }]}>
               {showBalance ? `-${formatCurrency(monthlyOutflow)}` : '••••'}
             </Text>

@@ -38,14 +38,30 @@ export default function DashboardScreen({ navigation }) {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTxType, setSelectedTxType] = useState('ALL'); // ALL, EXPENSE, INCOME, TRANSFER
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState('ALL'); // 'ALL' | 'THIS_MONTH' | 'PREV_MONTH'
+  const [selectedDateFilter, setSelectedDateFilter] = useState(null); // 'YYYY-MM-DD' or null
   const [selectedAccountFilter, setSelectedAccountFilter] = useState(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null);
   const [onlyWithComments, setOnlyWithComments] = useState(false);
-  const [displayLimit, setDisplayLimit] = useState(30);
+  const [displayLimit, setDisplayLimit] = useState(40);
 
   // Comment Modal state
   const [commentModalTx, setCommentModalTx] = useState(null);
   const [commentInput, setCommentInput] = useState('');
+
+  // Calendar month boundary markers
+  const now = new Date();
+  const currentMonthIdx = now.getMonth();
+  const currentYear = now.getFullYear();
+
+  const startOfThisMonth = useMemo(() => new Date(currentYear, currentMonthIdx, 1, 0, 0, 0, 0), [currentYear, currentMonthIdx]);
+  const endOfThisMonth = useMemo(() => new Date(currentYear, currentMonthIdx + 1, 0, 23, 59, 59, 999), [currentYear, currentMonthIdx]);
+
+  const startOfPrevMonth = useMemo(() => new Date(currentYear, currentMonthIdx - 1, 1, 0, 0, 0, 0), [currentYear, currentMonthIdx]);
+  const endOfPrevMonth = useMemo(() => new Date(currentYear, currentMonthIdx, 0, 23, 59, 59, 999), [currentYear, currentMonthIdx]);
+
+  const thisMonthLabel = now.toLocaleDateString('en-IN', { month: 'short' });
+  const prevMonthLabel = new Date(currentYear, currentMonthIdx - 1, 1).toLocaleDateString('en-IN', { month: 'short' });
 
   const categoryMap = useMemo(() => {
     const map = {};
@@ -86,7 +102,23 @@ export default function DashboardScreen({ navigation }) {
       if (selectedTxType === 'INCOME' && (tx.type !== 'income' || tx.categoryId === 'cat_transfer')) return false;
       if (selectedTxType === 'TRANSFER' && tx.categoryId !== 'cat_transfer') return false;
 
-      // 5. Search query (matches counterparty, note, comment, or account name)
+      // 5. Month filter (Calendar Month: 1st 00:00:00 to last day 23:59:59)
+      const txDate = new Date(tx.date);
+      if (isNaN(txDate.getTime())) return false;
+
+      if (selectedMonthFilter === 'THIS_MONTH') {
+        if (txDate < startOfThisMonth || txDate > endOfThisMonth) return false;
+      } else if (selectedMonthFilter === 'PREV_MONTH') {
+        if (txDate < startOfPrevMonth || txDate > endOfPrevMonth) return false;
+      }
+
+      // 6. Day filter (specific YYYY-MM-DD day)
+      if (selectedDateFilter) {
+        const txDateKey = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, '0')}-${String(txDate.getDate()).padStart(2, '0')}`;
+        if (txDateKey !== selectedDateFilter) return false;
+      }
+
+      // 7. Search query (matches counterparty, note, comment, or account name)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchCp = (tx.counterparty || '').toLowerCase().includes(q);
@@ -104,9 +136,72 @@ export default function DashboardScreen({ navigation }) {
     selectedCategoryFilter,
     onlyWithComments,
     selectedTxType,
+    selectedMonthFilter,
+    selectedDateFilter,
+    startOfThisMonth,
+    endOfThisMonth,
+    startOfPrevMonth,
+    endOfPrevMonth,
     searchQuery,
     accountMap,
   ]);
+
+  // Group transactions by calendar day (with day labels and daily totals)
+  const groupedTransactions = useMemo(() => {
+    const groups = [];
+    const dateMap = {};
+
+    const itemsToGroup = filteredTransactions.slice(0, displayLimit);
+
+    itemsToGroup.forEach((tx) => {
+      const d = new Date(tx.date);
+      if (isNaN(d.getTime())) return;
+      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+      if (!dateMap[dateKey]) {
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(today.getDate() - 1);
+
+        const isToday =
+          d.getDate() === today.getDate() &&
+          d.getMonth() === today.getMonth() &&
+          d.getFullYear() === today.getFullYear();
+
+        const isYesterday =
+          d.getDate() === yesterday.getDate() &&
+          d.getMonth() === yesterday.getMonth() &&
+          d.getFullYear() === yesterday.getFullYear();
+
+        let label = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+        if (isToday) {
+          label = `Today • ${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+        } else if (isYesterday) {
+          label = `Yesterday • ${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+        }
+
+        dateMap[dateKey] = {
+          dateKey,
+          label,
+          items: [],
+          dayInflow: 0,
+          dayOutflow: 0,
+        };
+        groups.push(dateMap[dateKey]);
+      }
+
+      dateMap[dateKey].items.push(tx);
+      if (!tx.isReminder && tx.categoryId !== 'cat_transfer') {
+        if (tx.type === 'income') {
+          dateMap[dateKey].dayInflow += tx.amount;
+        } else if (tx.type === 'expense') {
+          dateMap[dateKey].dayOutflow += tx.amount;
+        }
+      }
+    });
+
+    return groups;
+  }, [filteredTransactions, displayLimit]);
 
   const handleDeleteTransaction = useCallback(
     (id) => {
@@ -204,9 +299,31 @@ export default function DashboardScreen({ navigation }) {
           </Text>
         </View>
 
-        {/* Active Filter Chips (if an account or category is selected) */}
-        {(selectedAccountFilter || selectedCategoryFilter || onlyWithComments) && (
+        {/* Active Filter Chips (if an account, category, month, or day is selected) */}
+        {(selectedAccountFilter || selectedCategoryFilter || onlyWithComments || selectedDateFilter || selectedMonthFilter !== 'ALL') && (
           <View style={styles.activeFiltersRow}>
+            {selectedMonthFilter !== 'ALL' && (
+              <TouchableOpacity
+                style={[styles.activeFilterChip, { backgroundColor: 'rgba(124, 58, 237, 0.15)', borderColor: '#7C3AED' }]}
+                onPress={() => setSelectedMonthFilter('ALL')}
+              >
+                <Text style={[styles.activeFilterText, { color: '#7C3AED' }]}>
+                  {selectedMonthFilter === 'THIS_MONTH' ? `Month: ${thisMonthLabel}` : `Month: ${prevMonthLabel}`} ✕
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {selectedDateFilter && (
+              <TouchableOpacity
+                style={[styles.activeFilterChip, { backgroundColor: 'rgba(2, 132, 199, 0.15)', borderColor: '#0284C7' }]}
+                onPress={() => setSelectedDateFilter(null)}
+              >
+                <Text style={[styles.activeFilterText, { color: '#0284C7' }]}>
+                  Day: {selectedDateFilter} ✕
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {selectedAccountFilter && (
               <TouchableOpacity
                 style={[styles.activeFilterChip, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}
@@ -246,6 +363,8 @@ export default function DashboardScreen({ navigation }) {
                 setSelectedAccountFilter(null);
                 setSelectedCategoryFilter(null);
                 setOnlyWithComments(false);
+                setSelectedMonthFilter('ALL');
+                setSelectedDateFilter(null);
               }}
             >
               <Text style={[styles.clearAllFiltersText, { color: theme.textMuted }]}>Clear All</Text>
@@ -270,7 +389,50 @@ export default function DashboardScreen({ navigation }) {
           ) : null}
         </View>
 
-        {/* Transaction Type & Comments Filter Pills */}
+        {/* 1. Month Filter Pills Row */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.monthPillsRow}>
+          {[
+            { id: 'ALL', label: 'All Dates' },
+            { id: 'THIS_MONTH', label: `This Month (${thisMonthLabel})` },
+            { id: 'PREV_MONTH', label: `Last Month (${prevMonthLabel})` },
+          ].map((m) => {
+            const isActive = selectedMonthFilter === m.id;
+            return (
+              <TouchableOpacity
+                key={m.id}
+                style={[
+                  styles.monthPill,
+                  {
+                    backgroundColor: isActive ? theme.accent : theme.card,
+                    borderColor: isActive ? theme.accent : theme.cardBorder,
+                  },
+                ]}
+                onPress={() => {
+                  setSelectedMonthFilter(m.id);
+                  setSelectedDateFilter(null);
+                }}
+                activeOpacity={0.75}
+              >
+                <Ionicons
+                  name="calendar-outline"
+                  size={12}
+                  color={isActive ? '#FFFFFF' : theme.textSecondary}
+                  style={{ marginRight: 4 }}
+                />
+                <Text
+                  style={[
+                    styles.monthPillText,
+                    { color: isActive ? '#FFFFFF' : theme.textSecondary, fontWeight: isActive ? '700' : '600' },
+                  ]}
+                >
+                  {m.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* 2. Transaction Type & Comments Filter Pills Row */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterPillsRow}>
           {[
             { id: 'ALL', label: 'All' },
@@ -327,7 +489,7 @@ export default function DashboardScreen({ navigation }) {
           </TouchableOpacity>
         </ScrollView>
 
-        {/* Transactions List */}
+        {/* Transactions List Grouped by Day */}
         {isLoading ? (
           <SkeletonLoader count={4} />
         ) : filteredTransactions.length === 0 ? (
@@ -335,23 +497,57 @@ export default function DashboardScreen({ navigation }) {
             <Ionicons name="receipt-outline" size={38} color={theme.textMuted} />
             <Text style={[styles.emptyTitle, { color: theme.text }]}>No Transactions Found</Text>
             <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
-              {searchQuery || selectedAccountFilter || selectedCategoryFilter
+              {searchQuery || selectedAccountFilter || selectedCategoryFilter || selectedDateFilter || selectedMonthFilter !== 'ALL'
                 ? 'Try clearing active filters or search terms.'
                 : 'Tap "Sync SMS Logs" above to import your bank transactions!'}
             </Text>
           </View>
         ) : (
-          filteredTransactions.slice(0, displayLimit).map((tx) => (
-            <TransactionItem
-              key={tx.id}
-              transaction={tx}
-              category={categoryMap[tx.categoryId]}
-              account={accountMap[tx.accountId]}
-              onDelete={handleDeleteTransaction}
-              onEditComment={handleOpenCommentModal}
-              onSelectAccount={(accId) => setSelectedAccountFilter(accId)}
-              onSelectCategory={(catId) => setSelectedCategoryFilter(catId)}
-            />
+          groupedTransactions.map((group) => (
+            <View key={group.dateKey} style={styles.dayGroupContainer}>
+              {/* Day Header with Daily Subtotal Badges */}
+              <View style={[styles.dayGroupHeader, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
+                <TouchableOpacity
+                  style={styles.dayGroupHeaderLeft}
+                  onPress={() => setSelectedDateFilter(selectedDateFilter === group.dateKey ? null : group.dateKey)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="calendar-outline" size={13} color={theme.accent} style={{ marginRight: 6 }} />
+                  <Text style={[styles.dayGroupTitle, { color: theme.text }]}>
+                    {group.label}
+                  </Text>
+                  <Text style={[styles.dayItemCount, { color: theme.textMuted }]}>
+                    ({group.items.length})
+                  </Text>
+                </TouchableOpacity>
+
+                <View style={styles.dayGroupHeaderRight}>
+                  {group.dayInflow > 0 && (
+                    <Text style={[styles.dayFlowBadge, { color: theme.success }]}>
+                      +{formatCurrency(group.dayInflow)}
+                    </Text>
+                  )}
+                  {group.dayOutflow > 0 && (
+                    <Text style={[styles.dayFlowBadge, { color: theme.danger, marginLeft: 6 }]}>
+                      -{formatCurrency(group.dayOutflow)}
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              {group.items.map((tx) => (
+                <TransactionItem
+                  key={tx.id}
+                  transaction={tx}
+                  category={categoryMap[tx.categoryId]}
+                  account={accountMap[tx.accountId]}
+                  onDelete={handleDeleteTransaction}
+                  onEditComment={handleOpenCommentModal}
+                  onSelectAccount={(accId) => setSelectedAccountFilter(accId)}
+                  onSelectCategory={(catId) => setSelectedCategoryFilter(catId)}
+                />
+              ))}
+            </View>
           ))
         )}
 
@@ -528,6 +724,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     padding: 0,
   },
+  monthPillsRow: {
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+    gap: 8,
+  },
+  monthPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  monthPillText: {
+    fontSize: 11,
+  },
   filterPillsRow: {
     paddingHorizontal: 20,
     paddingBottom: 12,
@@ -541,6 +753,43 @@ const styles = StyleSheet.create({
   },
   filterPillText: {
     fontSize: 11.5,
+  },
+  dayGroupContainer: {
+    marginBottom: 6,
+  },
+  dayGroupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginTop: 10,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  dayGroupHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  dayGroupTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  dayItemCount: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  dayGroupHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dayFlowBadge: {
+    fontSize: 11.5,
+    fontWeight: '800',
   },
   emptyContainer: {
     marginHorizontal: 20,

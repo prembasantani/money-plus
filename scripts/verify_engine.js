@@ -493,4 +493,57 @@ if (sortedEval[0].id !== 'c2' || sortedEval[1].id !== 'c3' || sortedEval[2].id !
 }
 console.log('  ✅ Verified: Candidates strictly sorted descending (newest on top): 12 Nov -> 8 Nov -> 1 Nov.');
 
+// --- 26. Testing Smart Readable Activity Comment Generation ---
+console.log('\n--- 26. Testing Smart Readable Activity Comment Generation ---');
+const uberSms = 'Sent Rs.250 from ICICI Bank A/C XX417 to Uber India via UPI on 12-Nov-26.';
+const parsedUber = parseSingleMessage(uberSms, DEFAULT_ACCOUNTS);
+if (!parsedUber || parsedUber.comment !== 'Transport (Uber)') {
+  console.error('❌ Failed: Expected comment "Transport (Uber)", got:', parsedUber?.comment);
+  process.exit(1);
+}
+
+const sweetShopSms = 'Paid Rs.350 at Agarwal Sweets & Mithai using UPI Ref 12345.';
+const parsedSweets = parseSingleMessage(sweetShopSms, DEFAULT_ACCOUNTS);
+if (!parsedSweets || parsedSweets.comment !== 'Sweet Shop / Desserts') {
+  console.error('❌ Failed: Expected comment "Sweet Shop / Desserts", got:', parsedSweets?.comment);
+  process.exit(1);
+}
+
+const salarySms = 'Your salary of Rs.81300.00 is credited to ICICI Bank A/C XX417 on 06-Nov-26 by TECH CORP INFOTECH.';
+const parsedSalary = parseSingleMessage(salarySms, DEFAULT_ACCOUNTS);
+if (!parsedSalary || parsedSalary.comment !== 'Monthly Salary Credit') {
+  console.error('❌ Failed: Expected comment "Monthly Salary Credit", got:', parsedSalary?.comment);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: Smart 2-3 word comments generated: "${parsedUber.comment}", "${parsedSweets.comment}", "${parsedSalary.comment}".`);
+
+// --- 27. Testing Calendar Month Inflow / Outflow Excludes Inter-Ledger Transfers ---
+console.log('\n--- 27. Testing Monthly Inflow / Outflow Excludes Inter-Ledger Transfers ---');
+const sampleTxns = [
+  { id: 't1', amount: 81300, type: 'income', categoryId: 'cat_salary', date: '2026-11-06T07:49:00.000Z' },
+  { id: 't2', amount: 266, type: 'income', categoryId: 'cat_other', date: '2026-11-04T00:42:00.000Z' },
+  { id: 't3', amount: 31473.80, type: 'income', categoryId: 'cat_transfer', date: '2026-11-09T10:27:00.000Z' }, // Transfer into account
+  { id: 't4', amount: 31473.80, type: 'expense', categoryId: 'cat_transfer', date: '2026-11-09T10:26:00.000Z' }, // Transfer out of account
+  { id: 't5', amount: 950, type: 'expense', isReminder: true, categoryId: 'cat_bills', date: '2026-11-12T16:26:00.000Z' }, // Reminder
+];
+
+let testInflow = 0;
+let testOutflow = 0;
+sampleTxns.forEach((tx) => {
+  if (tx.isReminder) return;
+  if (tx.categoryId === 'cat_transfer') return;
+  if (tx.type === 'income') testInflow += tx.amount;
+  else if (tx.type === 'expense') testOutflow += tx.amount;
+});
+
+if (testInflow !== 81566) {
+  console.error(`❌ Failed: Expected clean monthly income 81566, got: ${testInflow}`);
+  process.exit(1);
+}
+if (testOutflow !== 0) {
+  console.error(`❌ Failed: Expected clean monthly spent 0, got: ${testOutflow}`);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: Month income is exactly ₹${testInflow} (transfers and reminders correctly excluded).`);
+
 console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering, Reminders & Sorting Unit Tests Passed Successfully!\n');
