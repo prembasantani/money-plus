@@ -62,15 +62,10 @@ export default function IgnoredTransactionsModal({ visible, onClose }) {
   const handleAcceptItem = async (item) => {
     const cfg = itemConfig[item.id] || {};
     const finalType = cfg.type || item.type || 'expense';
-    const finalAccountId = cfg.accountId || item.accountId || (accounts[0] && accounts[0].id);
-
-    if (!finalAccountId) {
-      notifyAction('No Account', 'Please select an account ledger to import this transaction into.', { type: 'warning' });
-      return;
-    }
+    const finalAccountId = cfg.accountId || item.accountId || (accounts[0] && accounts[0].id) || `acc_${Date.now()}`;
 
     const targetAccount = accounts.find((a) => a.id === finalAccountId);
-    const accName = targetAccount ? targetAccount.name : 'Selected Account';
+    const accName = targetAccount ? targetAccount.name : item.accountName || 'Restored Account';
 
     await restoreIgnoredTransaction(
       item.id,
@@ -81,7 +76,7 @@ export default function IgnoredTransactionsModal({ visible, onClose }) {
 
     notifyAction(
       'Transaction Accepted!',
-      `Imported ₹${item.amount} as ${finalType.toUpperCase()} into ${accName}. Account balance updated.`,
+      `Imported ₹${item.amount} as ${finalType.toUpperCase()} into "${accName}". Account balance updated.`,
       { type: 'success', icon: 'checkmark-circle' }
     );
   };
@@ -296,6 +291,38 @@ export default function IgnoredTransactionsModal({ visible, onClose }) {
                       ASSIGN TO LEDGER ACCOUNT:
                     </Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountChipsRow}>
+                      {/* If the original account was deleted or not in active accounts, show auto-recreate chip */}
+                      {!accounts.some((a) => a.id === item.accountId) && item.accountId ? (
+                        <TouchableOpacity
+                          style={[
+                            styles.accChip,
+                            {
+                              backgroundColor: currentAccountId === item.accountId ? 'rgba(99, 102, 241, 0.2)' : theme.cardSubtle,
+                              borderColor: currentAccountId === item.accountId ? '#6366F1' : theme.border,
+                              borderWidth: currentAccountId === item.accountId ? 2 : 1,
+                            },
+                          ]}
+                          onPress={() => handleSelectAccount(item.id, item.accountId)}
+                          activeOpacity={0.75}
+                        >
+                          <Ionicons
+                            name="refresh-circle-outline"
+                            size={14}
+                            color={currentAccountId === item.accountId ? '#6366F1' : theme.textSecondary}
+                            style={{ marginRight: 5 }}
+                          />
+                          <Text
+                            style={[
+                              styles.accChipText,
+                              { color: currentAccountId === item.accountId ? '#6366F1' : theme.textSecondary },
+                              currentAccountId === item.accountId && { fontWeight: '700' },
+                            ]}
+                          >
+                            {item.accountName || 'Original Account'} (Auto-Recreate)
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+
                       {accounts.map((acc) => {
                         const isSelected = currentAccountId === acc.id;
                         const isWallet = acc.ledgerCategory === 'wallet';

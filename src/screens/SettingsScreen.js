@@ -115,33 +115,7 @@ export default function SettingsScreen({ navigation }) {
           </Text>
         </View>
 
-        {/* 1. Accounts Tab Navigation Shortcut */}
-        <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, borderTopWidth: 3, borderTopColor: theme.primary }]}>
-          <View style={styles.sectionTitleRow}>
-            <View style={[styles.titleIconBadge, { backgroundColor: 'rgba(2, 132, 199, 0.2)' }]}>
-              <Ionicons name="wallet-outline" size={18} color="#0284C7" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Accounts & Ledgers</Text>
-              <Text style={[styles.sectionSub, { color: theme.textSecondary }]}>
-                {accounts.length} Accounts Active (Banks, Cards, Wallets & Cash)
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={[styles.accountsShortcutBtn, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}
-              onPress={() => navigation.navigate('Accounts')}
-              activeOpacity={0.75}
-            >
-              <Text style={[styles.accountsShortcutBtnText, { color: theme.accent }]}>View Tab</Text>
-              <Ionicons name="arrow-forward" size={13} color={theme.accent} style={{ marginLeft: 3 }} />
-            </TouchableOpacity>
-          </View>
-          <Text style={[styles.sectionDescription, { color: theme.textSecondary, marginTop: 6 }]}>
-            All account management, renaming, clubbing/merging, adding and deletions are centralized in the dedicated Accounts tab.
-          </Text>
-        </View>
-
-        {/* 2. Theme Mode Selector Card */}
+        {/* 1. Theme Mode Selector Card */}
         <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
           <View style={styles.sectionTitleRow}>
             <View style={[styles.titleIconBadge, { backgroundColor: theme.primaryLight }]}>
@@ -186,6 +160,37 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </View>
 
+        {/* 2. Ignored & Discarded Transactions Section Card */}
+        <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, borderLeftWidth: 4, borderLeftColor: '#F59E0B' }]}>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.titleIconBadge, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+              <Ionicons name="eye-off-outline" size={18} color="#F59E0B" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Ignored Transactions</Text>
+                <View style={[styles.countPill, { backgroundColor: theme.dangerLight }]}>
+                  <Text style={[styles.countPillText, { color: theme.danger }]}>{ignoredTransactions.length}</Text>
+                </View>
+              </View>
+              <Text style={[styles.sectionSub, { color: theme.textSecondary }]}>
+                Review discarded entries or restore them to active ledgers
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.sectionDescription, { color: theme.textSecondary, marginTop: 4 }]}>
+            Deleted and ignored transactions are held here. Restoring an entry automatically updates account balances and recreates any deleted account ledger.
+          </Text>
+          <TouchableOpacity
+            style={[styles.primaryActionBtn, { backgroundColor: '#F59E0B', marginTop: 8 }]}
+            onPress={() => setShowIgnoredModal(true)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="eye-outline" size={17} color="#FFFFFF" style={{ marginRight: 8 }} />
+            <Text style={styles.primaryActionBtnText}>Review & Restore Transactions ({ignoredTransactions.length})</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* 3. 1-Tap Ledger Actions: Clear Test Data, Backup Ledger, Reset Ledger */}
         <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
           <View style={styles.sectionTitleRow}>
@@ -206,21 +211,6 @@ export default function SettingsScreen({ navigation }) {
           >
             <Ionicons name="sparkles" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
             <Text style={styles.primaryActionBtnText}>Clear Test Data & Start Fresh</Text>
-          </TouchableOpacity>
-
-          {/* Review Ignored Transactions Button */}
-          <TouchableOpacity
-            style={[
-              styles.secondaryActionBtn,
-              { backgroundColor: theme.cardSubtle, borderColor: '#EF4444', borderWidth: 1.5 },
-            ]}
-            onPress={() => setShowIgnoredModal(true)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="eye-off-outline" size={18} color="#EF4444" style={{ marginRight: 8 }} />
-            <Text style={[styles.secondaryActionBtnText, { color: theme.text }]}>
-              Review Ignored Transactions ({ignoredTransactions.length})
-            </Text>
           </TouchableOpacity>
 
           {/* 2. Backup Ledger (Single Button) */}
@@ -402,6 +392,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
     lineHeight: 16,
+  },
+  countPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countPillText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
   accountsShortcutBtn: {
     flexDirection: 'row',

@@ -279,6 +279,8 @@ export function FinanceProvider({ children }) {
       rawText: target.note || '',
       fingerprint: fp,
       ignoredAt: new Date().toISOString(),
+      isReminder: !!target.isReminder,
+      itemKind: target.isReminder ? 'reminder' : 'transaction',
     };
     const updatedIgnored = [ignoredItem, ...ignoredTransactions.filter((i) => i.id !== txId && i.fingerprint !== fp)];
     setIgnoredTransactions(updatedIgnored);
@@ -288,19 +290,22 @@ export function FinanceProvider({ children }) {
       console.warn('Failed to save ignored transactions on delete', e);
     }
 
-    // 3. Reverse account balance
-    let updatedAccounts = accounts.map((acc) => {
-      if (acc.id === target.accountId) {
-        let newBalance = acc.balance;
-        if (target.type === 'expense') {
-          newBalance += target.amount; // reverse expense
-        } else if (target.type === 'income') {
-          newBalance -= target.amount; // reverse income
+    // 3. Reverse account balance (ONLY if target was NOT a reminder!)
+    let updatedAccounts = accounts;
+    if (!target.isReminder) {
+      updatedAccounts = accounts.map((acc) => {
+        if (acc.id === target.accountId) {
+          let newBalance = acc.balance;
+          if (target.type === 'expense') {
+            newBalance += target.amount; // reverse expense
+          } else if (target.type === 'income') {
+            newBalance -= target.amount; // reverse income
+          }
+          return { ...acc, balance: parseFloat(newBalance.toFixed(2)) };
         }
-        return { ...acc, balance: parseFloat(newBalance.toFixed(2)) };
-      }
-      return acc;
-    });
+        return acc;
+      });
+    }
 
     const updatedTxList = transactions.filter((t) => t.id !== txId);
 
@@ -325,19 +330,21 @@ export function FinanceProvider({ children }) {
 
     const origAmount = parseFloat(original.amount);
     const newAmount = parseFloat(updatedTx.amount);
+    const origWasReminder = !!original.isReminder;
+    const newIsReminder = !!updatedTx.isReminder;
 
     // Revert original transaction impact and apply updated impact to accounts
     const updatedAccounts = accounts.map((acc) => {
       let bal = acc.balance;
 
-      // 1. Revert original transaction
-      if (acc.id === original.accountId) {
+      // 1. Revert original transaction impact (ONLY if original was NOT a reminder)
+      if (!origWasReminder && acc.id === original.accountId) {
         if (original.type === 'expense') bal += origAmount;
         else if (original.type === 'income') bal -= origAmount;
       }
 
-      // 2. Apply updated transaction
-      if (acc.id === updatedTx.accountId) {
+      // 2. Apply updated transaction impact (ONLY if updated is NOT a reminder)
+      if (!newIsReminder && acc.id === updatedTx.accountId) {
         if (updatedTx.type === 'expense') bal -= newAmount;
         else if (updatedTx.type === 'income') bal += newAmount;
       }
@@ -348,6 +355,9 @@ export function FinanceProvider({ children }) {
     const updatedTxList = transactions.map((t) =>
       t.id === updatedTx.id ? { ...t, ...updatedTx, amount: newAmount } : t
     );
+
+    // Maintain strict descending chronological sort
+    updatedTxList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     await saveState(updatedAccounts, updatedTxList);
   };
@@ -575,10 +585,11 @@ export function FinanceProvider({ children }) {
     const target = ignoredTransactions.find((i) => i.id === txId);
     if (!target) return;
 
-    const chosenAccountId = targetAccountId || target.accountId || (accounts[0] && accounts[0].id);
+    let chosenAccountId = targetAccountId || target.accountId || (accounts[0] && accounts[0].id);
     const chosenType = type || target.type || 'expense';
     const chosenCategory = categoryId || target.categoryId || 'cat_other';
     const amount = parseFloat(target.amount) || 0;
+    const isReminder = !!target.isReminder;
 
     // 1. Remove from ignored list
     const updatedIgnored = ignoredTransactions.filter((i) => i.id !== txId);
@@ -601,9 +612,36 @@ export function FinanceProvider({ children }) {
       }
     }
 
-    // 3. Update account balance and append transaction
-    const updatedAccounts = accounts.map((acc) => {
-      if (acc.id === chosenAccountId) {
+    // 3. Ensure target account exists; if deleted or not found, recreate it automatically!
+    let currentAccounts = [...accounts];
+    const accountExists = currentAccounts.some((a) => a.id === chosenAccountId);
+
+    if (!accountExists) {
+      const accName = target.accountName || 'Restored Account';
+      const isCredit = /credit/i.test(accName) || /card/i.test(accName) || target.ledgerCategory === 'credit';
+      const isWallet = /wallet/i.test(accName) || target.ledgerCategory === 'wallet';
+      const isCash = /cash/i.test(accName) || target.ledgerCategory === 'cash';
+      const ledgerCategory = isCredit ? 'credit' : isWallet ? 'wallet' : isCash ? 'cash' : 'debit';
+
+      const recreatedAccount = {
+        id: chosenAccountId || `acc_${Date.now()}`,
+        name: accName,
+        number: target.accountNumber || (chosenAccountId ? `**${chosenAccountId.slice(-4)}` : '**Restored'),
+        type: isCredit ? 'Credit Card' : isWallet ? 'Digital Wallet' : isCash ? 'Cash' : 'Bank Account',
+        ledgerCategory,
+        balance: 0.0,
+        color: isCredit ? '#E11D48' : isWallet ? '#06B6D4' : isCash ? '#10B981' : '#6366F1',
+        accentColor: isCredit ? '#BE123C' : isWallet ? '#0891B2' : isCash ? '#047857' : '#4F46E5',
+        icon: isCredit ? 'card-outline' : isWallet ? 'wallet-outline' : isCash ? 'cash-outline' : 'business-outline',
+        isAutoDiscovered: true,
+      };
+      chosenAccountId = recreatedAccount.id;
+      currentAccounts.push(recreatedAccount);
+    }
+
+    // 4. Update account balance (only if not a reminder)
+    const updatedAccounts = currentAccounts.map((acc) => {
+      if (acc.id === chosenAccountId && !isReminder) {
         let newBalance = acc.balance;
         if (chosenType === 'expense') newBalance -= amount;
         else if (chosenType === 'income') newBalance += amount;
@@ -620,11 +658,14 @@ export function FinanceProvider({ children }) {
       categoryId: chosenCategory,
       counterparty: target.counterparty,
       date: target.date,
-      note: target.note || 'Restored from Ignored Transactions',
+      note: target.note || target.rawText || 'Restored from Ignored Transactions',
       fingerprint: target.fingerprint,
+      isReminder,
+      itemKind: isReminder ? 'reminder' : 'transaction',
     };
 
     const updatedTxList = [restoredTx, ...transactions];
+    updatedTxList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     await saveState(updatedAccounts, updatedTxList);
   };
 
@@ -820,7 +861,7 @@ export function FinanceProvider({ children }) {
   transactions.forEach((tx) => {
     if (tx.isReminder) return; // Reminders do not alter monthly inflow/outflow
     // CRITICAL: Inter-ledger transfers are balance-neutral and NOT external income/expense!
-    if (tx.categoryId === 'cat_transfer') return;
+    if (tx.categoryId === 'cat_transfer' || tx.type === 'transfer' || tx.isTransfer) return;
 
     const txDate = new Date(tx.date);
     if (txDate >= startOfCurrentMonth && txDate <= endOfCurrentMonth) {

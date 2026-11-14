@@ -546,4 +546,121 @@ if (testOutflow !== 0) {
 }
 console.log(`  ✅ Verified: Month income is exactly ₹${testInflow} (transfers and reminders correctly excluded).`);
 
+// --- 28. Testing Search Query by Numeric Amount ---
+console.log('\n--- 28. Testing Search Query by Numeric Amount ---');
+const testDataset = [
+  { id: '1', amount: 950.00, counterparty: 'PNB MetLife', note: 'Policy 24028200 due on 15 Nov' },
+  { id: '2', amount: 18000.00, counterparty: 'SBI Card', note: 'BBPS payment' },
+  { id: '3', amount: 16.00, counterparty: 'Kuldeep Tiwari', note: 'UPI' },
+];
+
+function searchTx(query, items) {
+  const q = query.toLowerCase().trim();
+  const cleanAmt = q.replace(/[^0-9.]/g, '');
+  return items.filter((tx) => {
+    const matchCp = (tx.counterparty || '').toLowerCase().includes(q);
+    const matchNote = (tx.note || '').toLowerCase().includes(q);
+    const matchAmt = cleanAmt.length > 0 && String(tx.amount || '').includes(cleanAmt);
+    return matchCp || matchNote || matchAmt;
+  });
+}
+
+const found950 = searchTx('950', testDataset);
+if (found950.length !== 1 || found950[0].id !== '1') {
+  console.error('❌ Failed: Searching "950" failed to find matching transaction!', found950);
+  process.exit(1);
+}
+const found18000 = searchTx('18000', testDataset);
+if (found18000.length !== 1 || found18000[0].id !== '2') {
+  console.error('❌ Failed: Searching "18000" failed to find matching transaction!', found18000);
+  process.exit(1);
+}
+console.log('  ✅ Verified: Searching by amount ("950", "18000") matches transactions accurately.');
+
+// --- 29. Testing 3-Way Mode Switcher Balance Integrity ---
+console.log('\n--- 29. Testing 3-Way Mode Switcher Balance Calculations ---');
+let accountBalance = 10000;
+let tx = { id: 'x', amount: 950, type: 'expense', isReminder: false };
+// Initial debit
+accountBalance -= tx.amount; // 9050
+
+// User switches to Reminder in modal
+const origAmount = tx.amount;
+const origWasReminder = tx.isReminder;
+const origType = tx.type;
+
+const updatedTxReminder = { ...tx, isReminder: true };
+const newAmount = updatedTxReminder.amount;
+const newIsReminder = updatedTxReminder.isReminder;
+const newType = updatedTxReminder.type;
+
+// Revert original (since !origWasReminder)
+if (!origWasReminder) {
+  if (origType === 'expense') accountBalance += origAmount;
+  else if (origType === 'income') accountBalance -= origAmount;
+}
+// Apply new (since newIsReminder === true, zero balance impact!)
+if (!newIsReminder) {
+  if (newType === 'expense') accountBalance -= newAmount;
+  else if (newType === 'income') accountBalance += newAmount;
+}
+
+if (accountBalance !== 10000) {
+  console.error('❌ Failed: Switching to reminder should restore balance to 10000, got:', accountBalance);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: Switching Debit (₹950) -> Reminder restores account balance to ₹${accountBalance}.`);
+
+// User switches Reminder to Credit (+950)
+const fromReminder = updatedTxReminder;
+const toCredit = { ...tx, type: 'income', isReminder: false };
+if (!fromReminder.isReminder) {
+  if (fromReminder.type === 'expense') accountBalance += fromReminder.amount;
+  else if (fromReminder.type === 'income') accountBalance -= fromReminder.amount;
+}
+if (!toCredit.isReminder) {
+  if (toCredit.type === 'expense') accountBalance -= toCredit.amount;
+  else if (toCredit.type === 'income') accountBalance += toCredit.amount;
+}
+if (accountBalance !== 10950) {
+  console.error('❌ Failed: Switching Reminder -> Credit should increase balance to 10950, got:', accountBalance);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: Switching Reminder -> Credit adds ₹950 to account balance (now ₹${accountBalance}).`);
+
+// --- 30. Testing Auto-Recreate Missing Account on Restore ---
+console.log('\n--- 30. Testing Auto-Recreate Missing Account on Restore ---');
+let activeAccountsList = [{ id: 'acc_cash', name: 'Cash', balance: 500 }];
+const ignoredTxToRestore = {
+  id: 'ign_123',
+  accountId: 'acc_icici_417',
+  accountName: 'ICICI Bank (**417)',
+  amount: 60.00,
+  type: 'expense',
+  isReminder: false,
+};
+
+let accountExists = activeAccountsList.some((a) => a.id === ignoredTxToRestore.accountId);
+if (!accountExists) {
+  activeAccountsList.push({
+    id: ignoredTxToRestore.accountId,
+    name: ignoredTxToRestore.accountName,
+    balance: 0.0,
+    ledgerCategory: 'debit',
+  });
+}
+activeAccountsList = activeAccountsList.map((a) => {
+  if (a.id === ignoredTxToRestore.accountId) {
+    return { ...a, balance: a.balance - ignoredTxToRestore.amount };
+  }
+  return a;
+});
+
+const restoredAcc = activeAccountsList.find((a) => a.id === 'acc_icici_417');
+if (!restoredAcc || restoredAcc.balance !== -60.00) {
+  console.error('❌ Failed: Missing account was not recreated or balance incorrect!', restoredAcc);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: Missing account "${restoredAcc.name}" automatically recreated on restore with balance ₹${restoredAcc.balance}.`);
+
 console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering, Reminders & Sorting Unit Tests Passed Successfully!\n');

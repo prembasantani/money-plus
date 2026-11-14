@@ -8,6 +8,7 @@ function TransactionItem({
   transaction,
   category,
   account,
+  onPress,
   onDelete,
   onEdit,
   onEditComment,
@@ -24,7 +25,7 @@ function TransactionItem({
   const signPrefix = isReminder ? '🔔 ' : isIncome ? '+' : isAdjustment ? '±' : '-';
 
   return (
-    <View
+    <TouchableOpacity
       style={[
         styles.container,
         {
@@ -35,6 +36,8 @@ function TransactionItem({
           borderWidth: 1.5,
         },
       ]}
+      onPress={() => onPress && onPress(transaction)}
+      activeOpacity={onPress ? 0.75 : 1}
     >
       {/* 1st Flex Group: Transaction Details (Icon, Title, Account, Date, Note, Comment) */}
       <View style={styles.infoGroup}>
@@ -134,7 +137,7 @@ function TransactionItem({
           ) : null}
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 

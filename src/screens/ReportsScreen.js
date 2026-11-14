@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFinance } from '../context/FinanceContext';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import TransactionItem from '../components/TransactionItem';
+import TransactionDetailModal from '../components/TransactionDetailModal';
 
 const PERIOD_MODES = [
   { id: 'DAILY', label: 'Daily' },
@@ -37,6 +38,7 @@ export default function ReportsScreen({ navigation }) {
   const [customPreset, setCustomPreset] = useState('30D');
   const [drillDownCategory, setDrillDownCategory] = useState(null);
   const [drillDownAccount, setDrillDownAccount] = useState(null);
+  const [selectedDetailTx, setSelectedDetailTx] = useState(null);
 
   // Detailed Transaction Report Filter & Grouping States
   const [reportAccountFilter, setReportAccountFilter] = useState('ALL');
@@ -1002,6 +1004,7 @@ export default function ReportsScreen({ navigation }) {
                         transaction={tx}
                         category={categoryMap[tx.categoryId]}
                         account={accountMap[tx.accountId]}
+                        onPress={(item) => setSelectedDetailTx(item)}
                         onSelectCategory={(cId) => {
                           const catObj = categoryMap[cId];
                           if (catObj) setDrillDownCategory({ id: cId, category: catObj, count: 1, amount: tx.amount, percent: 0 });
@@ -1084,6 +1087,7 @@ export default function ReportsScreen({ navigation }) {
                     transaction={tx}
                     category={drillDownCategory.category}
                     account={accountMap[tx.accountId]}
+                    onPress={(item) => setSelectedDetailTx(item)}
                   />
                 ))}
             </ScrollView>
@@ -1162,12 +1166,20 @@ export default function ReportsScreen({ navigation }) {
                     transaction={tx}
                     category={categoryMap[tx.categoryId]}
                     account={drillDownAccount.account}
+                    onPress={(item) => setSelectedDetailTx(item)}
                   />
                 ))}
             </ScrollView>
           </SafeAreaView>
         </Modal>
       )}
+
+      {/* Transaction Details & Quick Edit Modal */}
+      <TransactionDetailModal
+        visible={!!selectedDetailTx}
+        transaction={selectedDetailTx}
+        onClose={() => setSelectedDetailTx(null)}
+      />
     </SafeAreaView>
   );
 }

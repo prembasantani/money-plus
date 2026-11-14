@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFinance } from '../context/FinanceContext';
 import NetWorthCard from '../components/NetWorthCard';
 import TransactionItem from '../components/TransactionItem';
+import TransactionDetailModal from '../components/TransactionDetailModal';
 import SkeletonLoader from '../components/SkeletonLoader';
 import { confirmAction, notifyAction } from '../utils/dialogs';
 import { formatCurrency } from '../utils/formatters';
@@ -48,6 +49,7 @@ export default function DashboardScreen({ navigation }) {
   // Comment Modal state
   const [commentModalTx, setCommentModalTx] = useState(null);
   const [commentInput, setCommentInput] = useState('');
+  const [selectedDetailTx, setSelectedDetailTx] = useState(null);
 
   // Calendar month boundary markers
   const now = new Date();
@@ -118,14 +120,16 @@ export default function DashboardScreen({ navigation }) {
         if (txDateKey !== selectedDateFilter) return false;
       }
 
-      // 7. Search query (matches counterparty, note, comment, or account name)
+      // 7. Search query (matches counterparty, note, comment, account name, or amount)
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+        const q = searchQuery.toLowerCase().trim();
+        const cleanAmtQuery = q.replace(/[^0-9.]/g, '');
         const matchCp = (tx.counterparty || '').toLowerCase().includes(q);
         const matchNote = (tx.note || '').toLowerCase().includes(q);
         const matchComment = (tx.comment || '').toLowerCase().includes(q);
         const matchAcc = (accountMap[tx.accountId]?.name || '').toLowerCase().includes(q);
-        return matchCp || matchNote || matchComment || matchAcc;
+        const matchAmt = cleanAmtQuery.length > 0 && String(tx.amount || '').includes(cleanAmtQuery);
+        return matchCp || matchNote || matchComment || matchAcc || matchAmt;
       }
 
       return true;
@@ -199,6 +203,14 @@ export default function DashboardScreen({ navigation }) {
         }
       }
     });
+
+    // Guarantee strict descending time order for items in each day group
+    groups.forEach((grp) => {
+      grp.items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    });
+
+    // Guarantee calendar days are sorted latest date first
+    groups.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 
     return groups;
   }, [filteredTransactions, displayLimit]);
@@ -541,6 +553,7 @@ export default function DashboardScreen({ navigation }) {
                   transaction={tx}
                   category={categoryMap[tx.categoryId]}
                   account={accountMap[tx.accountId]}
+                  onPress={(item) => setSelectedDetailTx(item)}
                   onDelete={handleDeleteTransaction}
                   onEditComment={handleOpenCommentModal}
                   onSelectAccount={(accId) => setSelectedAccountFilter(accId)}
@@ -603,6 +616,13 @@ export default function DashboardScreen({ navigation }) {
           </View>
         </Modal>
       )}
+
+      {/* Transaction Details & Quick Edit Modal */}
+      <TransactionDetailModal
+        visible={!!selectedDetailTx}
+        transaction={selectedDetailTx}
+        onClose={() => setSelectedDetailTx(null)}
+      />
     </SafeAreaView>
   );
 }

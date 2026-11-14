@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import { useFinance } from '../context/FinanceContext';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { confirmAction, notifyAction } from '../utils/dialogs';
 import TransactionItem from '../components/TransactionItem';
+import TransactionDetailModal from '../components/TransactionDetailModal';
 
 export default function AccountsScreen({ navigation }) {
   const {
@@ -32,6 +33,19 @@ export default function AccountsScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL' | 'debit' | 'credit' | 'wallet'
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccountForTx, setSelectedAccountForTx] = useState(null);
+  const [selectedDetailTx, setSelectedDetailTx] = useState(null);
+
+  // Dynamic lookup for active selected account to guarantee live balance updates
+  const activeAccount = useMemo(() => {
+    if (!selectedAccountForTx) return null;
+    return accounts.find((a) => a.id === selectedAccountForTx.id) || selectedAccountForTx;
+  }, [accounts, selectedAccountForTx]);
+
+  useEffect(() => {
+    if (selectedAccountForTx && !accounts.some((a) => a.id === selectedAccountForTx.id)) {
+      setSelectedAccountForTx(null);
+    }
+  }, [accounts, selectedAccountForTx]);
 
   // Edit account modal
   const [editingAccount, setEditingAccount] = useState(null);
@@ -401,10 +415,10 @@ export default function AccountsScreen({ navigation }) {
 
               <View style={styles.modalTitleBox}>
                 <Text style={[styles.modalTitleText, { color: theme.text }]} numberOfLines={1}>
-                  {selectedAccountForTx.name}
+                  {activeAccount ? activeAccount.name : selectedAccountForTx.name}
                 </Text>
                 <Text style={[styles.modalSubtitleText, { color: theme.textSecondary }]}>
-                  {selectedAccountForTx.number} • {accountTransactions.length} records
+                  {activeAccount ? activeAccount.number : selectedAccountForTx.number} • {accountTransactions.length} records
                 </Text>
               </View>
 
@@ -418,22 +432,22 @@ export default function AccountsScreen({ navigation }) {
                   {
                     backgroundColor: theme.card,
                     borderColor: theme.cardBorder,
-                    borderLeftColor: selectedAccountForTx.color || theme.primary,
+                    borderLeftColor: (activeAccount || selectedAccountForTx).color || theme.primary,
                     borderLeftWidth: 4,
                   },
                 ]}
               >
-                <View style={[styles.accountIconBox, { backgroundColor: `${selectedAccountForTx.color || theme.primary}20`, width: 44, height: 44 }]}>
-                  <Ionicons name={selectedAccountForTx.icon || 'card-outline'} size={22} color={selectedAccountForTx.color || theme.primary} />
+                <View style={[styles.accountIconBox, { backgroundColor: `${(activeAccount || selectedAccountForTx).color || theme.primary}20`, width: 44, height: 44 }]}>
+                  <Ionicons name={(activeAccount || selectedAccountForTx).icon || 'card-outline'} size={22} color={(activeAccount || selectedAccountForTx).color || theme.primary} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.drillAccName, { color: theme.text }]}>{selectedAccountForTx.name}</Text>
+                  <Text style={[styles.drillAccName, { color: theme.text }]}>{(activeAccount || selectedAccountForTx).name}</Text>
                   <Text style={[styles.drillAccSub, { color: theme.textSecondary }]}>
                     Current Ledger Balance
                   </Text>
                 </View>
                 <Text style={[styles.drillAccBal, { color: theme.text }]}>
-                  {formatCurrency(selectedAccountForTx.balance || 0)}
+                  {formatCurrency((activeAccount || selectedAccountForTx).balance || 0)}
                 </Text>
               </View>
 
@@ -454,7 +468,8 @@ export default function AccountsScreen({ navigation }) {
                     key={tx.id}
                     transaction={tx}
                     category={categoryMap[tx.categoryId]}
-                    account={selectedAccountForTx}
+                    account={activeAccount || selectedAccountForTx}
+                    onPress={(item) => setSelectedDetailTx(item)}
                     onDelete={(id) => {
                       confirmAction(
                         'Delete Record',
@@ -469,6 +484,13 @@ export default function AccountsScreen({ navigation }) {
           </SafeAreaView>
         </Modal>
       )}
+
+      {/* Transaction Details & Quick Edit Modal */}
+      <TransactionDetailModal
+        visible={!!selectedDetailTx}
+        transaction={selectedDetailTx}
+        onClose={() => setSelectedDetailTx(null)}
+      />
 
       {/* Edit Account Modal */}
       {editingAccount && (
