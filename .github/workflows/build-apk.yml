@@ -68,6 +68,7 @@ jobs:
             exit 1
           fi
           echo "Found built release APK at: $RELEASE_APK"
+          cp "$RELEASE_APK" build-output/MoneyFollows.apk
           cp "$RELEASE_APK" build-output/money-plus.apk
 
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
@@ -75,18 +76,18 @@ jobs:
 
           # 1. Verify 4-byte boundary alignment
           echo "Verifying 4-byte boundary alignment..."
-          "$BUILD_TOOLS/zipalign" -c -v 4 build-output/money-plus.apk
+          "$BUILD_TOOLS/zipalign" -c -v 4 build-output/MoneyFollows.apk
 
           # 2. Verify complete cryptographic signature (v1 + v2 + v3 schemes)
           echo "Verifying cryptographic signature..."
-          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs build-output/money-plus.apk
-          ls -lh build-output/money-plus.apk
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs build-output/MoneyFollows.apk
+          ls -lh build-output/
 
       - name: 📤 Upload APK Artifact (Download from Actions tab)
         uses: actions/upload-artifact@v7
         with:
-          name: money-plus-apk
-          path: build-output/money-plus.apk
+          name: money-follows-apk
+          path: build-output/*.apk
           retention-days: 14
 
       - name: 🚀 Publish Direct Downloadable Release
@@ -94,13 +95,16 @@ jobs:
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
         with:
           tag_name: latest
-          name: ${{ github.event.inputs.release_title || 'Money+ Latest APK Build' }}
+          name: ${{ github.event.inputs.release_title || 'MoneyFollows Latest APK Build (v1.0.19)' }}
           body: |
-            ### 📱 Money+ Android APK
+            ### 📱 MoneyFollows Android APK (v1.0.19)
             * **Build Date:** ${{ github.event.head_commit.timestamp || 'Manual Dispatch' }}
             * **Commit:** ${{ github.sha }}
+            * **Package:** `com.moneyfollows.app`
             
-            👉 **Direct Download Link:** Tap `money-plus.apk` below to download and install immediately on your Android phone!
-          files: build-output/money-plus.apk
+            👉 **Direct Download Link:** Tap `MoneyFollows.apk` below to download and install immediately on your Android phone!
+          files: |
+            build-output/MoneyFollows.apk
+            build-output/money-plus.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

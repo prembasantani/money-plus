@@ -1,12 +1,15 @@
-const { withAppBuildGradle } = require('@expo/config-plugins');
+const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugins');
 
 /**
- * Expo Config Plugin to inject release signing configuration directly into android/app/build.gradle.
- * This ensures Gradle builds, aligns, and signs the release APK in a single native pass
- * using the official android-release.keystore.
+ * Expo Config Plugin to:
+ * 1. Inject release signing configuration directly into android/app/build.gradle
+ *    (single-pass native Gradle release signing with v1, v2, v3 schemes).
+ * 2. Configure expo.useLegacyPackaging=true in gradle.properties to ensure
+ *    native libraries are compressed and extracted to disk on installation (extractNativeLibs="true"),
+ *    preventing modern Samsung/Android page-alignment or memory-mapping installation failures.
  */
 function withReleaseSigning(config) {
-  return withAppBuildGradle(config, (config) => {
+  config = withAppBuildGradle(config, (config) => {
     let buildGradle = config.modResults.contents;
 
     if (!buildGradle.includes('signingConfigs.release')) {
@@ -45,6 +48,20 @@ function withReleaseSigning(config) {
 
     return config;
   });
+
+  config = withGradleProperties(config, (config) => {
+    config.modResults = config.modResults.filter(
+      (item) => item.key !== 'expo.useLegacyPackaging'
+    );
+    config.modResults.push({
+      type: 'property',
+      key: 'expo.useLegacyPackaging',
+      value: 'true',
+    });
+    return config;
+  });
+
+  return config;
 }
 
 module.exports = withReleaseSigning;

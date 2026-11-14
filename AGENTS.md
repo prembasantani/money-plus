@@ -12,7 +12,7 @@ This repository is **Money+**, a 100% offline-first, privacy-respecting personal
 2. **Authoritative Git Release Pipeline (Zero EAS Cloud Dependency)**:
    - Builds are packaged, aligned, keystore-signed, and published directly via **GitHub Actions** (`.github/workflows/build-apk.yml`).
    - **Never run EAS Cloud builds (`eas build`)** or consume user quota/free plans. The Git build is 100% self-sufficient.
-   - Keystore: Official release keystore `android-release.keystore` with package `com.moneyplus.wallet`.
+   - Keystore: Official release keystore `android-release.keystore` with package `com.moneyfollows.app`.
 3. **Continuous Native Generation (CNG)**:
    - `android/` and `ios/` directories are generated automatically during prebuild (`npx expo prebuild --platform android`).
    - Never edit files in `android/` directly. Configure native behaviors via `app.json` and config plugins.

@@ -2,18 +2,18 @@
   "expo": {
     "name": "MoneyFollows",
     "slug": "money-follows",
-    "version": "1.0.18",
+    "version": "1.0.19",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "backgroundColor": "#F8FAFC",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.moneyplus.wallet"
+      "bundleIdentifier": "com.moneyfollows.app"
     },
     "android": {
-      "package": "com.moneyplus.wallet",
-      "versionCode": 19,
+      "package": "com.moneyfollows.app",
+      "versionCode": 20,
       "adaptiveIcon": {
         "backgroundColor": "#F8FAFC",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -1,6 +1,6 @@
 {
   "name": "money-follows",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "main": "index.js",
   "dependencies": {
     "@expo/metro-runtime": "~58.0.17",
