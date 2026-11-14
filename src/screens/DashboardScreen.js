@@ -99,10 +99,12 @@ export default function DashboardScreen({ navigation }) {
         return false;
       }
 
-      // 4. Transaction type filter
-      if (selectedTxType === 'EXPENSE' && (tx.type !== 'expense' || tx.categoryId === 'cat_transfer')) return false;
-      if (selectedTxType === 'INCOME' && (tx.type !== 'income' || tx.categoryId === 'cat_transfer')) return false;
-      if (selectedTxType === 'TRANSFER' && tx.categoryId !== 'cat_transfer') return false;
+      // 4. Transaction type & Reminders filter (Reminders strictly isolated from Expense/Income/Transfer)
+      const isRem = tx.isReminder || tx.itemKind === 'reminder' || tx.accountId === 'acc_reminders' || tx.categoryId === 'cat_reminder';
+      if (selectedTxType === 'EXPENSE' && (tx.type !== 'expense' || tx.categoryId === 'cat_transfer' || isRem)) return false;
+      if (selectedTxType === 'INCOME' && (tx.type !== 'income' || tx.categoryId === 'cat_transfer' || isRem)) return false;
+      if (selectedTxType === 'TRANSFER' && (tx.categoryId !== 'cat_transfer' || isRem)) return false;
+      if (selectedTxType === 'REMINDER' && !isRem) return false;
 
       // 5. Month filter (Calendar Month: 1st 00:00:00 to last day 23:59:59)
       const txDate = new Date(tx.date);
@@ -195,7 +197,8 @@ export default function DashboardScreen({ navigation }) {
       }
 
       dateMap[dateKey].items.push(tx);
-      if (!tx.isReminder && tx.categoryId !== 'cat_transfer') {
+      const isRem = tx.isReminder || tx.itemKind === 'reminder' || tx.categoryId === 'cat_reminder';
+      if (!isRem && tx.categoryId !== 'cat_transfer' && tx.categoryId !== 'cat_adjustment') {
         if (tx.type === 'income') {
           dateMap[dateKey].dayInflow += tx.amount;
         } else if (tx.type === 'expense') {
@@ -451,6 +454,7 @@ export default function DashboardScreen({ navigation }) {
             { id: 'EXPENSE', label: 'Expenses (-)' },
             { id: 'INCOME', label: 'Income (+)' },
             { id: 'TRANSFER', label: 'Transfers (🔄)' },
+            { id: 'REMINDER', label: 'Reminders (🔔)' },
           ].map((f) => {
             const isActive = selectedTxType === f.id;
             return (

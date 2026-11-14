@@ -1,3 +1,17 @@
+export const REMINDER_ACCOUNT = {
+  id: 'acc_reminders',
+  name: 'Reminders & Mandates',
+  number: 'Advisory (Zero Balance)',
+  aliases: ['reminder', 'mandate', 'autopay', 'policybazaar'],
+  type: 'Upcoming Reminders',
+  ledgerCategory: 'reminder',
+  balance: 0.00,
+  color: '#F59E0B',
+  accentColor: '#D97706',
+  icon: 'notifications-outline',
+  isVirtual: true,
+};
+
 export const DEFAULT_ACCOUNTS = [
   {
     id: 'acc_icici',
@@ -59,6 +73,7 @@ export const DEFAULT_ACCOUNTS = [
     accentColor: '#6D28D9',
     icon: 'cash-outline',
   },
+  REMINDER_ACCOUNT,
 ];
 
 export const CATEGORIES = [
@@ -72,6 +87,7 @@ export const CATEGORIES = [
   { id: 'cat_salary', name: 'Salary & Income', icon: 'cash-outline', color: '#22C55E', type: 'income' },
   { id: 'cat_investment', name: 'Interest & Gains', icon: 'trending-up-outline', color: '#6366F1', type: 'income' },
   { id: 'cat_adjustment', name: 'Balance Adjustment', icon: 'swap-horizontal-outline', color: '#64748B', type: 'adjustment' },
+  { id: 'cat_reminder', name: 'Reminders & Alerts', icon: 'notifications-outline', color: '#F59E0B', type: 'reminder' },
   { id: 'cat_other', name: 'Other / General', icon: 'ellipsis-horizontal-circle-outline', color: '#94A3B8', type: 'expense' },
 ];
 

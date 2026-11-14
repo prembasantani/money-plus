@@ -6,6 +6,7 @@ export function formatCurrency(amount, showSign = false) {
     return '₹0.00';
   }
 
+  const isNegative = amount < 0;
   const absAmount = Math.abs(amount);
   const formatted = new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -14,10 +15,14 @@ export function formatCurrency(amount, showSign = false) {
     maximumFractionDigits: 2,
   }).format(absAmount);
 
-  if (showSign) {
-    if (amount > 0) return `+${formatted}`;
-    if (amount < 0) return `-${formatted}`;
+  if (isNegative) {
+    return `-${formatted}`;
   }
+
+  if (showSign && amount > 0) {
+    return `+${formatted}`;
+  }
+
   return formatted;
 }
 

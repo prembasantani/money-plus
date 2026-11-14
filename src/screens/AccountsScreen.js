@@ -51,6 +51,7 @@ export default function AccountsScreen({ navigation }) {
   const [editingAccount, setEditingAccount] = useState(null);
   const [editName, setEditName] = useState('');
   const [editNumber, setEditNumber] = useState('');
+  const [editCategory, setEditCategory] = useState('debit');
 
   // Add account modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -99,6 +100,8 @@ export default function AccountsScreen({ navigation }) {
       if (activeFilter !== 'ALL') {
         if (activeFilter === 'wallet') {
           if (acc.ledgerCategory !== 'wallet' && acc.ledgerCategory !== 'cash') return false;
+        } else if (activeFilter === 'reminder') {
+          if (acc.ledgerCategory !== 'reminder' && acc.id !== 'acc_reminders') return false;
         } else if (acc.ledgerCategory !== activeFilter) {
           return false;
         }
@@ -115,25 +118,68 @@ export default function AccountsScreen({ navigation }) {
     });
   }, [accounts, activeFilter, searchQuery]);
 
-  // Transactions belonging to selected account
+  // Transactions belonging to selected account (reminders strictly isolated to Reminders account)
   const accountTransactions = useMemo(() => {
     if (!selectedAccountForTx) return [];
-    return transactions.filter((t) => t.accountId === selectedAccountForTx.id);
+    if (selectedAccountForTx.id === 'acc_reminders' || selectedAccountForTx.ledgerCategory === 'reminder') {
+      return transactions.filter((t) => t.isReminder || t.itemKind === 'reminder' || t.accountId === 'acc_reminders' || t.categoryId === 'cat_reminder');
+    }
+    return transactions.filter((t) => t.accountId === selectedAccountForTx.id && !t.isReminder && t.itemKind !== 'reminder' && t.categoryId !== 'cat_reminder');
   }, [transactions, selectedAccountForTx]);
 
   const handleOpenEdit = (acc) => {
     setEditingAccount(acc);
     setEditName(acc.name);
     setEditNumber(acc.number || '');
+    setEditCategory(acc.ledgerCategory || 'debit');
   };
 
   const handleSaveEdit = async () => {
     if (!editingAccount || !editName.trim()) return;
+    const cat = editCategory;
+    const defaultType =
+      cat === 'credit'
+        ? 'Credit Card'
+        : cat === 'cash'
+        ? 'Cash'
+        : cat === 'wallet'
+        ? 'Digital Wallet'
+        : 'Bank Account';
+    const defaultColor =
+      cat === 'credit'
+        ? '#E11D48'
+        : cat === 'cash'
+        ? '#10B981'
+        : cat === 'wallet'
+        ? '#06B6D4'
+        : '#6366F1';
+    const defaultAccent =
+      cat === 'credit'
+        ? '#BE123C'
+        : cat === 'cash'
+        ? '#047857'
+        : cat === 'wallet'
+        ? '#0891B2'
+        : '#4F46E5';
+    const defaultIcon =
+      cat === 'credit'
+        ? 'card-outline'
+        : cat === 'cash'
+        ? 'cash-outline'
+        : cat === 'wallet'
+        ? 'wallet-outline'
+        : 'business-outline';
+
     await updateAccount(editingAccount.id, {
       name: editName.trim(),
       number: editNumber.trim() || editingAccount.number,
+      ledgerCategory: cat,
+      type: defaultType,
+      color: defaultColor,
+      accentColor: defaultAccent,
+      icon: defaultIcon,
     });
-    notifyAction('Account Updated', `"${editName.trim()}" details have been updated.`, { type: 'success' });
+    notifyAction('Account Updated', `"${editName.trim()}" category updated to ${defaultType}.`, { type: 'success' });
     setEditingAccount(null);
   };
 
@@ -256,6 +302,7 @@ export default function AccountsScreen({ navigation }) {
             { id: 'debit', label: `Banks (${accounts.filter((a) => a.ledgerCategory === 'debit').length})` },
             { id: 'credit', label: `Credit Cards (${accounts.filter((a) => a.ledgerCategory === 'credit').length})` },
             { id: 'wallet', label: `Wallets / Cash (${accounts.filter((a) => a.ledgerCategory === 'wallet' || a.ledgerCategory === 'cash').length})` },
+            { id: 'reminder', label: `Reminders (🔔 ${transactions.filter((t) => t.isReminder || t.itemKind === 'reminder' || t.accountId === 'acc_reminders' || t.categoryId === 'cat_reminder').length})` },
           ].map((tab) => {
             const isSel = activeFilter === tab.id;
             return (
@@ -305,9 +352,17 @@ export default function AccountsScreen({ navigation }) {
             </View>
           ) : (
             filteredAccounts.map((acc) => {
-              const txCount = transactions.filter((t) => t.accountId === acc.id).length;
+              const isRemAcc = acc.id === 'acc_reminders' || acc.ledgerCategory === 'reminder';
+              const txCount = isRemAcc
+                ? transactions.filter((t) => t.isReminder || t.itemKind === 'reminder' || t.accountId === 'acc_reminders' || t.categoryId === 'cat_reminder').length
+                : transactions.filter((t) => t.accountId === acc.id && !t.isReminder && t.itemKind !== 'reminder' && t.categoryId !== 'cat_reminder').length;
               const isCredit = acc.ledgerCategory === 'credit';
-              const balanceColor = isCredit ? (acc.balance > 0 ? theme.danger : theme.text) : (acc.balance >= 0 ? theme.text : theme.danger);
+              const isNegative = (acc.balance || 0) < 0;
+              const balanceColor = isRemAcc
+                ? '#F59E0B'
+                : isCredit
+                ? (acc.balance > 0 ? theme.danger : theme.text)
+                : (isNegative ? theme.danger : theme.text);
 
               return (
                 <TouchableOpacity
@@ -346,45 +401,47 @@ export default function AccountsScreen({ navigation }) {
 
                     <View style={styles.accountBalanceCol}>
                       <Text style={[styles.balanceAmountText, { color: balanceColor }]} numberOfLines={1}>
-                        {formatCurrency(acc.balance || 0)}
+                        {isRemAcc ? '₹0.00' : formatCurrency(acc.balance || 0)}
                       </Text>
                       <Text style={[styles.balanceSubText, { color: theme.textMuted }]}>
-                        {isCredit ? 'Outstanding' : 'Available'}
+                        {isRemAcc ? 'No Balance Impact' : isCredit ? 'Outstanding' : 'Available'}
                       </Text>
                     </View>
                   </View>
 
-                  {/* Account Quick Action Buttons */}
-                  <View style={[styles.accountCardFooter, { borderTopColor: theme.border }]}>
-                    <TouchableOpacity
-                      style={[styles.accFooterBtn, { backgroundColor: theme.primaryLight }]}
-                      onPress={() => navigation.navigate('Adjust', { preselectedAccount: acc.id, mode: 'OVERRIDE' })}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="swap-vertical" size={13} color={theme.accent} style={{ marginRight: 4 }} />
-                      <Text style={[styles.accFooterBtnText, { color: theme.accent }]}>Calibrate Balance</Text>
-                    </TouchableOpacity>
-
-                    <View style={styles.footerIconActions}>
+                  {/* Account Quick Action Buttons (hidden for virtual Reminders account) */}
+                  {!isRemAcc && (
+                    <View style={[styles.accountCardFooter, { borderTopColor: theme.border }]}>
                       <TouchableOpacity
-                        style={[styles.iconActionBtn, { backgroundColor: theme.cardSubtle }]}
-                        onPress={() => handleOpenEdit(acc)}
+                        style={[styles.accFooterBtn, { backgroundColor: theme.primaryLight }]}
+                        onPress={() => navigation.navigate('Adjust', { preselectedAccount: acc.id, mode: 'OVERRIDE' })}
                         activeOpacity={0.7}
-                        accessibilityLabel="Edit account"
                       >
-                        <Ionicons name="pencil" size={13} color={theme.textSecondary} />
+                        <Ionicons name="swap-vertical" size={13} color={theme.accent} style={{ marginRight: 4 }} />
+                        <Text style={[styles.accFooterBtnText, { color: theme.accent }]}>Calibrate Balance</Text>
                       </TouchableOpacity>
 
-                      <TouchableOpacity
-                        style={[styles.iconActionBtn, { backgroundColor: theme.dangerLight }]}
-                        onPress={() => handleDeleteAccount(acc)}
-                        activeOpacity={0.7}
-                        accessibilityLabel="Delete account"
-                      >
-                        <Ionicons name="trash-outline" size={13} color={theme.danger} />
-                      </TouchableOpacity>
+                      <View style={styles.footerIconActions}>
+                        <TouchableOpacity
+                          style={[styles.iconActionBtn, { backgroundColor: theme.cardSubtle }]}
+                          onPress={() => handleOpenEdit(acc)}
+                          activeOpacity={0.7}
+                          accessibilityLabel="Edit account"
+                        >
+                          <Ionicons name="pencil" size={13} color={theme.textSecondary} />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.iconActionBtn, { backgroundColor: theme.dangerLight }]}
+                          onPress={() => handleDeleteAccount(acc)}
+                          activeOpacity={0.7}
+                          accessibilityLabel="Delete account"
+                        >
+                          <Ionicons name="trash-outline" size={13} color={theme.danger} />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                  </View>
+                  )}
                 </TouchableOpacity>
               );
             })
@@ -426,34 +483,48 @@ export default function AccountsScreen({ navigation }) {
             </View>
 
             <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 40 }}>
-              <View
-                style={[
-                  styles.accountDrillSummary,
-                  {
-                    backgroundColor: theme.card,
-                    borderColor: theme.cardBorder,
-                    borderLeftColor: (activeAccount || selectedAccountForTx).color || theme.primary,
-                    borderLeftWidth: 4,
-                  },
-                ]}
-              >
-                <View style={[styles.accountIconBox, { backgroundColor: `${(activeAccount || selectedAccountForTx).color || theme.primary}20`, width: 44, height: 44 }]}>
-                  <Ionicons name={(activeAccount || selectedAccountForTx).icon || 'card-outline'} size={22} color={(activeAccount || selectedAccountForTx).color || theme.primary} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.drillAccName, { color: theme.text }]}>{(activeAccount || selectedAccountForTx).name}</Text>
-                  <Text style={[styles.drillAccSub, { color: theme.textSecondary }]}>
-                    Current Ledger Balance
-                  </Text>
-                </View>
-                <Text style={[styles.drillAccBal, { color: theme.text }]}>
-                  {formatCurrency((activeAccount || selectedAccountForTx).balance || 0)}
-                </Text>
-              </View>
+              {(() => {
+                const curAcc = activeAccount || selectedAccountForTx;
+                const isRemAccDrill = curAcc.id === 'acc_reminders' || curAcc.ledgerCategory === 'reminder';
+                const curBal = curAcc.balance || 0;
+                const isDebt = curAcc.ledgerCategory === 'credit' ? curBal > 0 : curBal < 0;
+                const drillBalColor = isRemAccDrill ? '#F59E0B' : isDebt ? theme.danger : theme.text;
 
-              <Text style={[styles.sectionHeading, { color: theme.textMuted }]}>
-                ALL ENTRIES FOR THIS ACCOUNT ({accountTransactions.length})
-              </Text>
+                return (
+                  <>
+                    <View
+                      style={[
+                        styles.accountDrillSummary,
+                        {
+                          backgroundColor: theme.card,
+                          borderColor: theme.cardBorder,
+                          borderLeftColor: curAcc.color || theme.primary,
+                          borderLeftWidth: 4,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.accountIconBox, { backgroundColor: `${curAcc.color || theme.primary}20`, width: 44, height: 44 }]}>
+                        <Ionicons name={curAcc.icon || 'card-outline'} size={22} color={curAcc.color || theme.primary} />
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={[styles.drillAccName, { color: theme.text }]}>{curAcc.name}</Text>
+                        <Text style={[styles.drillAccSub, { color: theme.textSecondary }]}>
+                          {isRemAccDrill ? 'Informational Alerts (Zero Balance)' : 'Current Ledger Balance'}
+                        </Text>
+                      </View>
+                      <Text style={[styles.drillAccBal, { color: drillBalColor }]}>
+                        {isRemAccDrill ? '₹0.00' : formatCurrency(curBal)}
+                      </Text>
+                    </View>
+
+                    <Text style={[styles.sectionHeading, { color: theme.textMuted }]}>
+                      {isRemAccDrill
+                        ? `UPCOMING NOTICES & REMINDERS (${accountTransactions.length})`
+                        : `ALL ENTRIES FOR THIS ACCOUNT (${accountTransactions.length})`}
+                    </Text>
+                  </>
+                );
+              })()}
 
               {accountTransactions.length === 0 ? (
                 <View style={[styles.emptyContainer, { marginTop: 40 }]}>
@@ -512,6 +583,43 @@ export default function AccountsScreen({ navigation }) {
                 placeholder="Account Digits / Identifier (e.g. **1074)"
                 placeholderTextColor={theme.textMuted}
               />
+
+              <Text style={[styles.fieldLabel, { color: theme.textMuted, marginTop: 14, marginBottom: 6 }]}>
+                ACCOUNT CATEGORY / TYPE:
+              </Text>
+              <View style={styles.categorySelectRow}>
+                {[
+                  { id: 'debit', label: 'Bank (Debit)' },
+                  { id: 'credit', label: 'Credit Card' },
+                  { id: 'wallet', label: 'Wallet' },
+                  { id: 'cash', label: 'Cash' },
+                ].map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.catSelectPill,
+                      {
+                        backgroundColor: editCategory === cat.id ? theme.primary : theme.cardSubtle,
+                        borderColor: editCategory === cat.id ? theme.primary : theme.border,
+                      },
+                    ]}
+                    onPress={() => setEditCategory(cat.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.catSelectText,
+                        {
+                          color: editCategory === cat.id ? '#FFFFFF' : theme.textSecondary,
+                          fontWeight: editCategory === cat.id ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
               <View style={styles.dialogBtnRow}>
                 <TouchableOpacity style={[styles.dialogCancelBtn, { borderColor: theme.border }]} onPress={() => setEditingAccount(null)}>
                   <Text style={[styles.dialogCancelText, { color: theme.textSecondary }]}>Cancel</Text>

@@ -4,6 +4,7 @@ import {
   DEFAULT_ACCOUNTS,
   CATEGORIES,
   INITIAL_TRANSACTIONS,
+  REMINDER_ACCOUNT,
 } from '../types/finance';
 import { generateFingerprint, normalizeSmsText } from '../utils/deduplication';
 import { THEMES } from '../utils/theme';
@@ -79,7 +80,11 @@ export function FinanceProvider({ children }) {
         }
 
         if (storedAccounts) {
-          setAccounts(JSON.parse(storedAccounts));
+          let parsedAccounts = JSON.parse(storedAccounts);
+          if (!parsedAccounts.some((a) => a.id === 'acc_reminders')) {
+            parsedAccounts.push(REMINDER_ACCOUNT);
+          }
+          setAccounts(parsedAccounts);
         } else {
           setAccounts(DEFAULT_ACCOUNTS);
           await AsyncStorage.setItem(
@@ -457,7 +462,7 @@ export function FinanceProvider({ children }) {
           icon: 'cash-outline',
         };
 
-    const freshAccounts = [cashAccount];
+    const freshAccounts = [cashAccount, REMINDER_ACCOUNT];
     await saveState(freshAccounts, []);
 
     // Also wipe ignored transactions and persistent blacklist so everything starts fresh
@@ -826,8 +831,11 @@ export function FinanceProvider({ children }) {
     };
   };
 
-  // Total Net Worth computation
-  const totalNetWorth = accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
+  // Total Net Worth computation (excludes virtual reminders account)
+  const totalNetWorth = accounts.reduce((sum, acc) => {
+    if (acc.id === 'acc_reminders' || acc.isVirtual || acc.ledgerCategory === 'reminder') return sum;
+    return sum + (acc.balance || 0);
+  }, 0);
 
   // In-Memory Indexed Views (Pre-computed for 0ms reactivity)
   const accountsById = {};
@@ -840,6 +848,7 @@ export function FinanceProvider({ children }) {
     credit: accounts.filter((a) => a.ledgerCategory === 'credit'),
     wallet: accounts.filter((a) => a.ledgerCategory === 'wallet'),
     cash: accounts.filter((a) => a.ledgerCategory === 'cash'),
+    reminder: accounts.filter((a) => a.ledgerCategory === 'reminder' || a.id === 'acc_reminders'),
   };
 
   const totalBankBalance = accountsByType.bank.reduce((sum, a) => sum + (a.balance || 0), 0);
@@ -859,9 +868,11 @@ export function FinanceProvider({ children }) {
   let monthlyOutflow = 0;
 
   transactions.forEach((tx) => {
-    if (tx.isReminder) return; // Reminders do not alter monthly inflow/outflow
+    if (tx.isReminder || tx.itemKind === 'reminder' || tx.categoryId === 'cat_reminder') return; // Reminders do not alter monthly inflow/outflow
     // CRITICAL: Inter-ledger transfers are balance-neutral and NOT external income/expense!
     if (tx.categoryId === 'cat_transfer' || tx.type === 'transfer' || tx.isTransfer) return;
+    // CRITICAL: Manual balance calibrations / overrides are adjustments, NOT external monthly expenses/inflows!
+    if (tx.categoryId === 'cat_adjustment') return;
 
     const txDate = new Date(tx.date);
     if (txDate >= startOfCurrentMonth && txDate <= endOfCurrentMonth) {

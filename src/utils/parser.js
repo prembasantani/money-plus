@@ -922,8 +922,20 @@ export function parseSingleMessage(
     }
   }
 
-  // 6. Account resolution & auto-discovery (debit vs credit vs wallet)
-  const accountResult = resolveAccountInfo(text, availableAccounts);
+  // 6. Account resolution & auto-discovery (debit vs credit vs wallet vs reminder)
+  let accountResult;
+  if (isReminder) {
+    accountResult = {
+      accountId: 'acc_reminders',
+      accountName: 'Reminders & Mandates',
+      accountNumber: 'Upcoming Reminders',
+      ledgerCategory: 'reminder',
+      isNew: false,
+      discoveredAccount: null,
+    };
+  } else {
+    accountResult = resolveAccountInfo(text, availableAccounts);
+  }
 
   // 7. Counterparty (Merchants are strictly counterparties, never ledgers)
   const counterparty = extractCounterparty(text, type);
@@ -931,10 +943,12 @@ export function parseSingleMessage(
   // 8. Date
   const date = extractDate(text, rawTimestamp);
 
-  // 9. Category (Card bill payments and inter-ledger fund transfers get cat_transfer)
+  // 9. Category (Card bill payments and inter-ledger fund transfers get cat_transfer, reminders get cat_reminder)
   let categoryId = inferCategory(`${counterparty} ${text}`, type);
   if (isCreditCardPayment) {
     categoryId = 'cat_transfer';
+  } else if (isReminder) {
+    categoryId = 'cat_reminder';
   }
 
   // 10. Compute Fingerprint hash

@@ -36,7 +36,7 @@ export default function NetWorthCard({ totalNetWorth, monthlyInflow, monthlyOutf
         </View>
       </View>
 
-      <Text style={[styles.balanceText, { color: theme.text }]}>
+      <Text style={[styles.balanceText, { color: totalNetWorth < 0 ? theme.danger : theme.text }]}>
         {showBalance ? formatCurrency(totalNetWorth) : '••••••••'}
       </Text>
 
@@ -72,6 +72,25 @@ export default function NetWorthCard({ totalNetWorth, monthlyInflow, monthlyOutf
           </View>
         </View>
       </View>
+
+      {/* Net Deficit or Net Savings Indicator */}
+      {showBalance && monthlyOutflow > monthlyInflow && (
+        <View style={[styles.deficitNoticeRow, { backgroundColor: `${theme.danger}15`, borderColor: `${theme.danger}35` }]}>
+          <Ionicons name="trending-down" size={13} color={theme.danger} style={{ marginRight: 6 }} />
+          <Text style={[styles.deficitNoticeText, { color: theme.danger }]}>
+            {activeMonth ? `${activeMonth} Net Deficit` : 'Monthly Net Deficit'}: -{formatCurrency(monthlyOutflow - monthlyInflow)}
+          </Text>
+        </View>
+      )}
+
+      {showBalance && monthlyInflow > monthlyOutflow && (
+        <View style={[styles.deficitNoticeRow, { backgroundColor: `${theme.success}15`, borderColor: `${theme.success}35` }]}>
+          <Ionicons name="trending-up" size={13} color={theme.success} style={{ marginRight: 6 }} />
+          <Text style={[styles.deficitNoticeText, { color: theme.success }]}>
+            {activeMonth ? `${activeMonth} Net Savings` : 'Monthly Net Savings'}: +{formatCurrency(monthlyInflow - monthlyOutflow)}
+          </Text>
+        </View>
+      )}
 
       {/* Quick Actions Row */}
       <View style={styles.actionsRow}>
@@ -236,5 +255,20 @@ const styles = StyleSheet.create({
   actionBtnTextSecondary: {
     fontWeight: '600',
     fontSize: 13,
+  },
+  deficitNoticeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: -8,
+    marginBottom: 14,
+  },
+  deficitNoticeText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

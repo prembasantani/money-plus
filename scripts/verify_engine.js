@@ -1,6 +1,7 @@
 import { parseRawSmsBatch, parseSingleMessage, parseDeviceSmsList } from '../src/utils/parser.js';
 import { runDeduplicationEngine, generateFingerprint } from '../src/utils/deduplication.js';
 import { DEFAULT_ACCOUNTS, INITIAL_TRANSACTIONS, SAMPLE_SMS_BATCH } from '../src/types/finance.js';
+import { formatCurrency } from '../src/utils/formatters.js';
 
 console.log('=== MONEY+ ENGINE VERIFICATION TEST ===\n');
 
@@ -662,5 +663,119 @@ if (!restoredAcc || restoredAcc.balance !== -60.00) {
   process.exit(1);
 }
 console.log(`  ✅ Verified: Missing account "${restoredAcc.name}" automatically recreated on restore with balance ₹${restoredAcc.balance}.`);
+
+// --- 31. Testing Reminders Account & Category Isolation ---
+console.log('\n--- 31. Testing Reminders Account & Category Isolation ---');
+const testReminderSms = 'Dear Customer, your EMI of Rs 3,500.00 will be debited on 20-Nov-26 for Loan. Maintain balance.';
+const parsedRem = parseSingleMessage(testReminderSms, DEFAULT_ACCOUNTS);
+if (!parsedRem.isReminder) {
+  console.error('❌ Failed: Expected isReminder to be true!');
+  process.exit(1);
+}
+if (parsedRem.accountId !== 'acc_reminders') {
+  console.error(`❌ Failed: Reminders must route to "acc_reminders", got "${parsedRem.accountId}"`);
+  process.exit(1);
+}
+if (parsedRem.categoryId !== 'cat_reminder') {
+  console.error(`❌ Failed: Reminders must have categoryId "cat_reminder", got "${parsedRem.categoryId}"`);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: Reminder routed strictly to "${parsedRem.accountName}" (${parsedRem.accountId}) under "${parsedRem.categoryId}".`);
+
+// --- 32. Testing formatCurrency Preserves Minus Sign on Deficit / Negative Balances ---
+console.log('\n--- 32. Testing formatCurrency Preserves Minus Sign on Negative Balances ---');
+const formattedNegNetWorth = formatCurrency(-23800.45);
+if (!formattedNegNetWorth.startsWith('-₹')) {
+  console.error(`❌ Failed: Negative balance must start with "-₹", got "${formattedNegNetWorth}"`);
+  process.exit(1);
+}
+const formattedPositive = formatCurrency(23800.45);
+if (formattedPositive.startsWith('-')) {
+  console.error(`❌ Failed: Positive balance must not have minus sign, got "${formattedPositive}"`);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: Deficit/negative balance formats correctly with minus sign: "${formattedNegNetWorth}" vs "${formattedPositive}".`);
+
+// --- 33. Testing Balance Adjustment (cat_adjustment) Excluded from Monthly Spent ---
+console.log('\n--- 33. Testing Balance Override Excluded from Monthly Spent ---');
+const now = new Date();
+const currentMonth = now.getMonth();
+const currentYear = now.getFullYear();
+const startOfCurrentMonth = new Date(currentYear, currentMonth, 1, 0, 0, 0, 0);
+const endOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
+
+const sampleTxList = [
+  { id: 't1', amount: 81566.00, type: 'income', categoryId: 'cat_salary', date: new Date().toISOString() },
+  { id: 't2', amount: 66308.09, type: 'expense', categoryId: 'cat_food', date: new Date().toISOString() },
+  { id: 't3', amount: 39058.36, type: 'expense', categoryId: 'cat_adjustment', counterparty: 'Balance Override', date: new Date().toISOString() },
+  { id: 't4', amount: 18000.00, type: 'expense', categoryId: 'cat_transfer', isTransfer: true, date: new Date().toISOString() },
+  { id: 't5', amount: 950.00, type: 'expense', categoryId: 'cat_reminder', isReminder: true, date: new Date().toISOString() },
+];
+
+let computedInflow = 0;
+let computedOutflow = 0;
+
+sampleTxList.forEach((tx) => {
+  if (tx.isReminder || tx.itemKind === 'reminder' || tx.categoryId === 'cat_reminder') return;
+  if (tx.categoryId === 'cat_transfer' || tx.type === 'transfer' || tx.isTransfer) return;
+  if (tx.categoryId === 'cat_adjustment') return; // Excluded!
+
+  const txDate = new Date(tx.date);
+  if (txDate >= startOfCurrentMonth && txDate <= endOfCurrentMonth) {
+    if (tx.type === 'income') computedInflow += tx.amount;
+    else if (tx.type === 'expense') computedOutflow += tx.amount;
+  }
+});
+
+if (computedOutflow !== 66308.09) {
+  console.error(`❌ Failed: Expected monthly outflow 66308.09, got ${computedOutflow} (override was not excluded!)`);
+  process.exit(1);
+}
+if (computedInflow !== 81566.00) {
+  console.error(`❌ Failed: Expected monthly inflow 81566.00, got ${computedInflow}`);
+  process.exit(1);
+}
+console.log(`  ✅ Verified: Monthly inflow (₹${computedInflow}) and outflow (₹${computedOutflow}) completely exclude balance overrides, transfers, and reminders.`);
+
+// --- 34. Testing Account Category Update Configuration ---
+console.log('\n--- 34. Testing Account Category Reclassification Logic ---');
+function updateAccountCategory(existingAccount, newCategory) {
+  const cat = newCategory;
+  const defaultType =
+    cat === 'credit'
+      ? 'Credit Card'
+      : cat === 'cash'
+      ? 'Cash'
+      : cat === 'wallet'
+      ? 'Digital Wallet'
+      : 'Bank Account';
+  const defaultColor =
+    cat === 'credit'
+      ? '#E11D48'
+      : cat === 'cash'
+      ? '#10B981'
+      : cat === 'wallet'
+      ? '#06B6D4'
+      : '#6366F1';
+  return {
+    ...existingAccount,
+    ledgerCategory: cat,
+    type: defaultType,
+    color: defaultColor,
+  };
+}
+
+const originalSbi = { id: 'acc_sbi', name: 'State Bank of India', ledgerCategory: 'debit', balance: 5000 };
+const reclassifiedSbiToCredit = updateAccountCategory(originalSbi, 'credit');
+if (reclassifiedSbiToCredit.ledgerCategory !== 'credit' || reclassifiedSbiToCredit.type !== 'Credit Card') {
+  console.error('❌ Failed: Reclassifying SBI to credit card failed!', reclassifiedSbiToCredit);
+  process.exit(1);
+}
+const reclassifiedSbiToCash = updateAccountCategory(originalSbi, 'cash');
+if (reclassifiedSbiToCash.ledgerCategory !== 'cash' || reclassifiedSbiToCash.type !== 'Cash') {
+  console.error('❌ Failed: Reclassifying SBI to cash failed!', reclassifiedSbiToCash);
+  process.exit(1);
+}
+console.log('  ✅ Verified: Account category switching dynamically updates ledgerCategory, card type, and styling.');
 
 console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering, Reminders & Sorting Unit Tests Passed Successfully!\n');

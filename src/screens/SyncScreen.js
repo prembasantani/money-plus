@@ -172,21 +172,42 @@ export default function SyncScreen({ navigation }) {
       prev.map((item) => {
         if (item.id === targetItem.id) {
           let newCategory = item.categoryId;
-          if (newType === 'income') {
-            newCategory =
-              item.categoryId === 'cat_salary' ||
-              item.categoryId === 'cat_investment' ||
-              item.categoryId === 'cat_transfer'
-                ? item.categoryId
-                : 'cat_investment';
+          let newAccId = item.accountId;
+          let newAccName = item.accountName;
+          let newLedgerCat = item.ledgerCategory;
+
+          if (isReminder) {
+            newCategory = 'cat_reminder';
+            newAccId = 'acc_reminders';
+            newAccName = 'Reminders & Mandates';
+            newLedgerCat = 'reminder';
           } else {
-            newCategory =
-              item.categoryId === 'cat_salary' || item.categoryId === 'cat_investment'
-                ? 'cat_other'
-                : item.categoryId;
+            if (item.accountId === 'acc_reminders') {
+              const fallback = accounts.find((a) => a.id !== 'acc_reminders' && !a.isVirtual) || accounts[0];
+              newAccId = fallback ? fallback.id : 'acc_cash';
+              newAccName = fallback ? fallback.name : 'Cash in Hand';
+              newLedgerCat = fallback ? fallback.ledgerCategory : 'cash';
+            }
+            if (newType === 'income') {
+              newCategory =
+                item.categoryId === 'cat_salary' ||
+                item.categoryId === 'cat_investment' ||
+                item.categoryId === 'cat_transfer'
+                  ? item.categoryId
+                  : 'cat_investment';
+            } else {
+              newCategory =
+                item.categoryId === 'cat_salary' || item.categoryId === 'cat_investment' || item.categoryId === 'cat_reminder'
+                  ? 'cat_other'
+                  : item.categoryId;
+            }
           }
+
           return {
             ...item,
+            accountId: newAccId,
+            accountName: newAccName,
+            ledgerCategory: newLedgerCat,
             type: newType,
             categoryId: newCategory,
             isReminder: !!isReminder,

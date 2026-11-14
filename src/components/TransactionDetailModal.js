@@ -76,10 +76,23 @@ export default function TransactionDetailModal({
     try {
       const isReminder = selectedMode === 'reminder';
       const type = selectedMode === 'credit' ? 'income' : 'expense';
+      let accId = transaction.accountId;
+      let catId = transaction.categoryId;
+
+      if (isReminder) {
+        accId = 'acc_reminders';
+        catId = 'cat_reminder';
+      } else if (accId === 'acc_reminders') {
+        const fallback = accounts.find((a) => a.id !== 'acc_reminders' && !a.isVirtual) || accounts[0];
+        accId = fallback ? fallback.id : 'acc_cash';
+        catId = type === 'income' ? 'cat_salary' : 'cat_other';
+      }
 
       const updated = {
         ...transaction,
         comment: comment.trim(),
+        accountId: accId,
+        categoryId: catId,
         type,
         isReminder,
         itemKind: isReminder ? 'reminder' : 'transaction',
