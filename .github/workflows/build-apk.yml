@@ -48,42 +48,38 @@ jobs:
       - name: ⚙️ Expo Prebuild (Generate Android Native Project)
         run: npx expo prebuild --platform android --no-install
 
-      - name: 🔨 Build Release APK
+      - name: 🔨 Build Release APK (Natively Signed via Gradle)
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease \
+            -PRELEASE_STORE_FILE=../../android-release.keystore \
+            -PRELEASE_STORE_PASSWORD=moneyplus123 \
+            -PRELEASE_KEY_ALIAS=moneyplus \
+            -PRELEASE_KEY_PASSWORD=moneyplus123 \
+            --no-daemon
 
-      - name: 🔑 Align & Sign APK (v1 + v2 + v3 schemes)
+      - name: 🔍 Verify Alignment & Signature Integrity
         run: |
           mkdir -p build-output
-          RAW_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          if [ -z "$RAW_APK" ]; then
+          RELEASE_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$RELEASE_APK" ]; then
             echo "Error: Release APK not found!"
             exit 1
           fi
-          echo "Found raw APK at: $RAW_APK"
+          echo "Found built release APK at: $RELEASE_APK"
+          cp "$RELEASE_APK" build-output/money-plus.apk
 
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
           echo "Using Android Build Tools: $BUILD_TOOLS"
 
-          # 1. Zipalign to 4-byte boundaries
-          "$BUILD_TOOLS/zipalign" -p -f 4 "$RAW_APK" build-output/aligned.apk
+          # 1. Verify 4-byte boundary alignment
+          echo "Verifying 4-byte boundary alignment..."
+          "$BUILD_TOOLS/zipalign" -c -v 4 build-output/money-plus.apk
 
-          # 2. Sign with permanent release keystore
-          "$BUILD_TOOLS/apksigner" sign \
-            --ks android-release.keystore \
-            --ks-pass pass:moneyplus123 \
-            --ks-key-alias moneyplus \
-            --key-pass pass:moneyplus123 \
-            --v1-signing-enabled true \
-            --v2-signing-enabled true \
-            --v3-signing-enabled true \
-            --out build-output/money-plus.apk \
-            build-output/aligned.apk
-
-          # 3. Verify signature
-          "$BUILD_TOOLS/apksigner" verify --verbose build-output/money-plus.apk
+          # 2. Verify complete cryptographic signature (v1 + v2 + v3 schemes)
+          echo "Verifying cryptographic signature..."
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs build-output/money-plus.apk
           ls -lh build-output/money-plus.apk
 
       - name: 📤 Upload APK Artifact (Download from Actions tab)

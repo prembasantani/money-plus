@@ -2,7 +2,7 @@
   "expo": {
     "name": "MoneyFollows",
     "slug": "money-follows",
-    "version": "1.0.15",
+    "version": "1.0.16",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "com.moneyplus.wallet",
-      "versionCode": 16,
+      "versionCode": 17,
       "adaptiveIcon": {
         "backgroundColor": "#F8FAFC",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -36,7 +36,8 @@
     "plugins": [
       "expo-font",
       "expo-status-bar",
-      "expo-splash-screen"
+      "expo-splash-screen",
+      "./plugins/withReleaseSigning"
     ]
   }
 }
