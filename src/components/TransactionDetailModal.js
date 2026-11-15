@@ -26,13 +26,20 @@ export default function TransactionDetailModal({
     categories,
     updateTransaction,
     deleteTransaction,
+    addAccount,
     theme,
   } = useFinance();
 
   const [comment, setComment] = useState('');
   const [selectedMode, setSelectedMode] = useState('debit'); // 'debit' | 'credit' | 'reminder'
   const [selectedCategoryId, setSelectedCategoryId] = useState('cat_other');
+  const [selectedAccountId, setSelectedAccountId] = useState('');
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
+  const [isAccountPickerOpen, setIsAccountPickerOpen] = useState(false);
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+  const [newAccName, setNewAccName] = useState('');
+  const [newAccNumber, setNewAccNumber] = useState('');
+  const [newAccCat, setNewAccCat] = useState('debit');
   const [copiedNote, setCopiedNote] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -40,7 +47,13 @@ export default function TransactionDetailModal({
     if (transaction) {
       setComment(transaction.comment || '');
       setSelectedCategoryId(transaction.categoryId || 'cat_other');
+      setSelectedAccountId(transaction.accountId || '');
       setIsCategoryPickerOpen(false);
+      setIsAccountPickerOpen(false);
+      setIsCreatingAccount(false);
+      setNewAccName('');
+      setNewAccNumber('');
+      setNewAccCat('debit');
       if (transaction.isReminder) {
         setSelectedMode('reminder');
       } else if (transaction.type === 'income') {
@@ -54,7 +67,10 @@ export default function TransactionDetailModal({
 
   if (!transaction) return null;
 
-  const currentAccount = accounts.find((a) => a.id === transaction.accountId);
+  const currentAccount =
+    accounts.find((a) => a.id === (selectedMode === 'reminder' ? 'acc_reminders' : selectedAccountId)) ||
+    accounts.find((a) => a.id === transaction.accountId) ||
+    accounts[0];
   const activeCatId = selectedMode === 'reminder' ? 'cat_reminder' : selectedCategoryId;
   const currentCategory =
     categories.find((c) => c.id === activeCatId) ||
@@ -83,8 +99,38 @@ export default function TransactionDetailModal({
     setSelectedMode(newMode);
     if (newMode === 'reminder') {
       setIsCategoryPickerOpen(false);
+      setIsAccountPickerOpen(false);
+      setIsCreatingAccount(false);
     } else if (selectedCategoryId === 'cat_reminder') {
       setSelectedCategoryId(newMode === 'credit' ? 'cat_salary' : 'cat_other');
+    }
+  };
+
+  const handleCreateInlineAccount = async () => {
+    if (!newAccName.trim()) {
+      notifyAction('Account Name Required', 'Please enter a name for the account.', { type: 'warning' });
+      return;
+    }
+    try {
+      const formattedNum = newAccNumber.trim()
+        ? (newAccNumber.trim().startsWith('**') ? newAccNumber.trim() : `**${newAccNumber.trim().replace(/\D/g, '') || '0000'}`)
+        : '**0000';
+      const created = await addAccount({
+        name: newAccName.trim(),
+        number: formattedNum,
+        ledgerCategory: newAccCat,
+      });
+      if (created) {
+        setSelectedAccountId(created.id);
+        setIsCreatingAccount(false);
+        setIsAccountPickerOpen(false);
+        setNewAccName('');
+        setNewAccNumber('');
+        notifyAction('Account Created', `Created and assigned "${created.name}".`, { type: 'success' });
+      }
+    } catch (e) {
+      console.error('Error creating account:', e);
+      notifyAction('Error', 'Could not create account.', { type: 'danger' });
     }
   };
 
@@ -93,7 +139,7 @@ export default function TransactionDetailModal({
     try {
       const isReminder = selectedMode === 'reminder';
       const type = selectedMode === 'credit' ? 'income' : 'expense';
-      let accId = transaction.accountId;
+      let accId = isReminder ? 'acc_reminders' : (selectedAccountId || transaction.accountId);
       let catId = isReminder ? 'cat_reminder' : selectedCategoryId;
 
       if (isReminder) {
@@ -119,7 +165,7 @@ export default function TransactionDetailModal({
       await updateTransaction(updated);
       notifyAction(
         'Transaction Updated',
-        `Saved changes with category "${currentCategory?.name || 'Updated'}" in ${selectedMode.toUpperCase()} mode.`,
+        `Saved changes in ${selectedMode.toUpperCase()} mode under ${currentAccount?.name || 'Account'}.`,
         { type: 'success', icon: 'checkmark-circle' }
       );
       onClose();
@@ -155,7 +201,11 @@ export default function TransactionDetailModal({
 
   const hasCommentChanged = (transaction.comment || '') !== comment.trim();
   const hasCategoryChanged = (transaction.categoryId || 'cat_other') !== activeCatId;
-  const hasChanges = hasModeChanged || hasCommentChanged || hasCategoryChanged;
+  const hasAccountChanged =
+    selectedMode !== 'reminder' &&
+    !!selectedAccountId &&
+    transaction.accountId !== selectedAccountId;
+  const hasChanges = hasModeChanged || hasCommentChanged || hasCategoryChanged || hasAccountChanged;
 
   return (
     <Modal
@@ -362,24 +412,196 @@ export default function TransactionDetailModal({
               </Text>
 
               <View style={[styles.infoGrid, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-                {/* Account row */}
-                <View style={styles.infoRow}>
+                {/* Account row - Interactive Selector */}
+                <TouchableOpacity
+                  style={[styles.infoRow, { paddingVertical: 11 }]}
+                  onPress={() => {
+                    if (selectedMode !== 'reminder') {
+                      setIsAccountPickerOpen(!isAccountPickerOpen);
+                      setIsCategoryPickerOpen(false);
+                    }
+                  }}
+                  activeOpacity={selectedMode === 'reminder' ? 1 : 0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Change Account, currently ${currentAccount?.name || 'Account'}`}
+                >
                   <View style={styles.infoRowLeft}>
                     <Ionicons name="wallet-outline" size={16} color={theme.textMuted} style={{ marginRight: 8 }} />
                     <Text style={[styles.infoRowLabel, { color: theme.textSecondary }]}>Account</Text>
                   </View>
-                  <View style={[styles.pillBadge, { backgroundColor: theme.primaryLight }]}>
-                    <Ionicons
-                      name={currentAccount?.icon || 'business-outline'}
-                      size={12}
-                      color={theme.accent}
-                      style={{ marginRight: 4 }}
-                    />
-                    <Text style={[styles.pillBadgeText, { color: theme.accent }]}>
-                      {currentAccount?.name || 'Account'}
-                    </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, justifyContent: 'flex-end' }}>
+                    <View style={[styles.pillBadge, { backgroundColor: theme.primaryLight, flexShrink: 1 }]}>
+                      <Ionicons
+                        name={currentAccount?.icon || 'business-outline'}
+                        size={12}
+                        color={theme.accent}
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text style={[styles.pillBadgeText, { color: theme.accent }]} numberOfLines={1}>
+                        {currentAccount?.name || 'Account'}
+                      </Text>
+                    </View>
+                    {selectedMode !== 'reminder' && (
+                      <View style={[styles.categoryChevronBox, { backgroundColor: theme.cardSubtle }]}>
+                        <Ionicons
+                          name={isAccountPickerOpen ? 'chevron-up' : 'chevron-down'}
+                          size={13}
+                          color={theme.accent}
+                        />
+                      </View>
+                    )}
                   </View>
-                </View>
+                </TouchableOpacity>
+
+                {/* Expandable Account Tray */}
+                {isAccountPickerOpen && selectedMode !== 'reminder' && (
+                  <View style={[styles.accountPickerTray, { backgroundColor: theme.cardSubtle, borderColor: theme.border }]}>
+                    <View style={styles.categoryPickerTrayHeader}>
+                      <Text style={[styles.categoryPickerTrayTitle, { color: theme.textMuted }]}>
+                        SELECT LEDGER ACCOUNT
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setIsAccountPickerOpen(false);
+                          setIsCreatingAccount(false);
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close-circle-outline" size={16} color={theme.textMuted} />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Account list */}
+                    <View style={styles.accountChipsColumn}>
+                      {accounts
+                        .filter((a) => a.id !== 'acc_reminders' && !a.isVirtual)
+                        .map((acc) => {
+                          const isSelected = (selectedAccountId || transaction.accountId) === acc.id;
+                          return (
+                            <TouchableOpacity
+                              key={acc.id}
+                              style={[
+                                styles.accountSelectCard,
+                                {
+                                  backgroundColor: isSelected ? `${acc.color || '#3B82F6'}15` : theme.card,
+                                  borderColor: isSelected ? (acc.color || theme.primary) : theme.border,
+                                },
+                                isSelected && { borderWidth: 1.5 },
+                              ]}
+                              onPress={() => {
+                                setSelectedAccountId(acc.id);
+                                setIsAccountPickerOpen(false);
+                                setIsCreatingAccount(false);
+                              }}
+                              activeOpacity={0.75}
+                            >
+                              <View style={[styles.accountSelectIcon, { backgroundColor: `${acc.color || '#3B82F6'}20` }]}>
+                                <Ionicons
+                                  name={acc.icon || 'card-outline'}
+                                  size={16}
+                                  color={acc.color || theme.primary}
+                                />
+                              </View>
+                              <View style={{ flex: 1, marginRight: 8 }}>
+                                <Text
+                                  style={[
+                                    styles.accountSelectName,
+                                    {
+                                      color: theme.text,
+                                      fontWeight: isSelected ? '800' : '600',
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {acc.name}
+                                </Text>
+                                <Text style={[styles.accountSelectSub, { color: theme.textMuted }]}>
+                                  {acc.number || acc.type || 'Account'} • Bal: {formatCurrency(acc.balance || 0)}
+                                </Text>
+                              </View>
+                              {isSelected && (
+                                <Ionicons name="checkmark-circle" size={18} color={acc.color || theme.primary} />
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                    </View>
+
+                    {/* Inline Create Account Form or Button */}
+                    {!isCreatingAccount ? (
+                      <TouchableOpacity
+                        style={[styles.addAccountBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+                        onPress={() => setIsCreatingAccount(true)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="add-circle-outline" size={16} color={theme.primary} style={{ marginRight: 6 }} />
+                        <Text style={[styles.addAccountBtnText, { color: theme.primary }]}>+ Create New Account</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={[styles.inlineCreateBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                        <Text style={[styles.inlineCreateTitle, { color: theme.text }]}>Add New Account</Text>
+                        <TextInput
+                          style={[styles.inlineInput, { backgroundColor: theme.cardSubtle, color: theme.text, borderColor: theme.border }]}
+                          placeholder="Account Name (e.g. RBL Bank Credit Card (**59))"
+                          placeholderTextColor={theme.textMuted}
+                          value={newAccName}
+                          onChangeText={setNewAccName}
+                        />
+                        <TextInput
+                          style={[styles.inlineInput, { backgroundColor: theme.cardSubtle, color: theme.text, borderColor: theme.border }]}
+                          placeholder="Mask / Digits (e.g. **59 or 59)"
+                          placeholderTextColor={theme.textMuted}
+                          value={newAccNumber}
+                          onChangeText={setNewAccNumber}
+                        />
+                        <View style={styles.inlineCatRow}>
+                          {[
+                            { id: 'debit', label: 'Bank' },
+                            { id: 'credit', label: 'Credit Card' },
+                            { id: 'wallet', label: 'Wallet' },
+                            { id: 'cash', label: 'Cash' },
+                          ].map((c) => (
+                            <TouchableOpacity
+                              key={c.id}
+                              style={[
+                                styles.inlineCatChip,
+                                {
+                                  backgroundColor: newAccCat === c.id ? theme.primary : theme.cardSubtle,
+                                  borderColor: theme.border,
+                                },
+                              ]}
+                              onPress={() => setNewAccCat(c.id)}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: '700',
+                                  color: newAccCat === c.id ? '#FFFFFF' : theme.textSecondary,
+                                }}
+                              >
+                                {c.label}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                          <TouchableOpacity
+                            style={[styles.inlineSubmitBtn, { backgroundColor: theme.primary }]}
+                            onPress={handleCreateInlineAccount}
+                          >
+                            <Text style={styles.inlineSubmitText}>Create & Select</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.inlineCancelBtn, { borderColor: theme.border }]}
+                            onPress={() => setIsCreatingAccount(false)}
+                          >
+                            <Text style={[styles.inlineCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                )}
 
                 <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
@@ -776,6 +998,108 @@ const styles = StyleSheet.create({
     padding: 12,
     borderBottomLeftRadius: 14,
     borderBottomRightRadius: 14,
+  },
+  accountPickerTray: {
+    borderTopWidth: 1,
+    padding: 12,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+  },
+  accountChipsColumn: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  accountSelectCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    minHeight: 46,
+  },
+  accountSelectIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  accountSelectName: {
+    fontSize: 13,
+  },
+  accountSelectSub: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  addAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 8,
+    minHeight: 42,
+  },
+  addAccountBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  inlineCreateBox: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  inlineCreateTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  inlineInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  inlineCatRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 4,
+  },
+  inlineCatChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  inlineSubmitBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: 8,
+    minHeight: 38,
+  },
+  inlineSubmitText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  inlineCancelBtn: {
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    minHeight: 38,
+  },
+  inlineCancelText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   categoryPickerTrayHeader: {
     flexDirection: 'row',

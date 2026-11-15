@@ -964,4 +964,47 @@ if (revertedDebitTx.categoryId === 'cat_reminder' || revertedDebitTx.isReminder)
 }
 console.log('  ✅ Verified: Dynamic category reassignment and reminder isolation verified (Food & Dining assigned, reminder locked, non-reminder restored).');
 
+// --- 39. Testing 2-Digit Masked Credit Card (XX59) & Bill Payment Received ---
+console.log('\n--- 39. Testing 2-Digit Masked Credit Card (XX59) & Bill Payment Received ---');
+const rblSmsUser = 'Payment of INR 4559.47 received on RBL Bank Credit Card XX59 on 15-11-2026, Avl Limit INR 45440.53. View - https://acl.cc/RBLBNK/j9WxBRPx';
+const accountsPool = [
+  ...DEFAULT_ACCOUNTS,
+  {
+    id: 'acc_rbl_4723',
+    name: 'RBL Bank Credit Card (**4723)',
+    number: '**4723',
+    aliases: ['4723'],
+    type: 'RBL Bank Credit Card',
+    ledgerCategory: 'credit',
+    balance: 0.0,
+  },
+];
+const parsedRblUser = parseSingleMessage(rblSmsUser, accountsPool);
+if (!parsedRblUser) {
+  console.error('❌ Failed: RBL Credit Card XX59 SMS was not parsed!');
+  process.exit(1);
+}
+if (parsedRblUser.accountId === 'acc_rbl_4723') {
+  console.error('❌ Failed: RBL Credit Card XX59 was hijacked by acc_rbl_4723 instead of creating acc_rbl_59!');
+  process.exit(1);
+}
+if (parsedRblUser.accountId !== 'acc_rbl_59') {
+  console.error('❌ Failed: Expected accountId acc_rbl_59, got:', parsedRblUser.accountId);
+  process.exit(1);
+}
+if (parsedRblUser.type !== 'income') {
+  console.error('❌ Failed: Payment received on Credit Card must be INCOME (credit to card liability), got:', parsedRblUser.type);
+  process.exit(1);
+}
+if (!parsedRblUser.counterparty.includes('Credit Card Bill Payment')) {
+  console.error('❌ Failed: Expected counterparty to contain Credit Card Bill Payment, got:', parsedRblUser.counterparty);
+  process.exit(1);
+}
+const parsedYear = new Date(parsedRblUser.date).getFullYear();
+if (parsedYear !== 2026) {
+  console.error('❌ Failed: Date year must be 2026, got:', parsedYear);
+  process.exit(1);
+}
+console.log('  ✅ Verified: XX59 auto-discovered as distinct account "RBL Bank Credit Card (**59)" (not hijacked by **4723), correctly tagged as INCOME (+) and year 2026.');
+
 console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering, Reminders, Tax Export & Sorting Unit Tests Passed Successfully!\n');

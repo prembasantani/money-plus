@@ -285,6 +285,8 @@ export function resolveAccountInfo(text, availableAccounts = []) {
   // Strip out amounts, UPI references, phone numbers, and dates to avoid matching amount digits (e.g. 4560 from Rs 4560.23)
   const strippedForDigits = text
     .replace(/(?:Rs\.?|INR|₹)\s*[\d,]+(?:\.\d+)?/gi, '')
+    .replace(/(?:Avl\s*Limit|Available\s*Limit|Limit)[\s:\-—]*(?:Rs\.?|INR|₹)?\s*[\d,]+(?:\.\d+)?/gi, '')
+    .replace(/(?:Bal|Balance|Avail\s*Bal|Avl\s*Bal)[\s:\-—]*(?:Rs\.?|INR|₹)?\s*[\d,]+(?:\.\d+)?/gi, '')
     .replace(/UPI\/(?:DR|CR)\/\d+/gi, '')
     .replace(/\b(?:1800\d{6,8}|\d{10,12})\b/g, '')
     .replace(/\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b/g, '')
@@ -292,11 +294,11 @@ export function resolveAccountInfo(text, availableAccounts = []) {
 
   let digits = '';
   const digitsMatch =
-    strippedForDigits.match(/(?:sent\s+from|from|to|in|a\/c|account|acct|card)\s*(?:no\.?)?\s*[:\s-]*\(?([xX*]*\d{3,6})\)?/i) ||
-    strippedForDigits.match(/\b([xX*]+\d{3,6})\b/) ||
-    strippedForDigits.match(/\(([xX*]*\d{3,6})\)/) ||
-    strippedForDigits.match(/(?:Card|A\/C|Acct)\s*([xX*]*\d{3,6})\b/i) ||
-    strippedForDigits.match(/ending\s+(?:in\s+|with\s+)?\(?([xX*]*\d{3,6})\)?/i);
+    strippedForDigits.match(/(?:sent\s+from|from|to|in|a\/c|account|acct|card)\s*(?:no\.?)?\s*[:\s-]*\(?([xX*]*\d{2,6})\)?/i) ||
+    strippedForDigits.match(/\b([xX*]+\d{2,6})\b/) ||
+    strippedForDigits.match(/\(([xX*]*\d{2,6})\)/) ||
+    strippedForDigits.match(/(?:Card|A\/C|Acct)\s*([xX*]*\d{2,6})\b/i) ||
+    strippedForDigits.match(/ending\s+(?:in\s+|with\s+)?\(?([xX*]*\d{2,6})\)?/i);
 
   if (digitsMatch && digitsMatch[1]) {
     digits = digitsMatch[1].replace(/\D/g, '');
@@ -335,21 +337,22 @@ export function resolveAccountInfo(text, availableAccounts = []) {
     accType = `${detectedBank.shortName} Account`;
   }
 
-  // 4. Try to match an existing account by last 3/4 digits OR aliases (e.g. 8417 matches 417, 1074 matches x1074)
-  if (digits.length >= 3) {
-    const last3or4 = digits.slice(-4);
+  // 4. Try to match an existing account by last 2-4 digits OR aliases (e.g. 59 matches XX59, 8417 matches 417, 1074 matches x1074)
+  if (digits.length >= 2) {
+    const lastDigits = digits.slice(-4);
     for (const acc of availableAccounts) {
+      if (acc.id === 'acc_reminders' || acc.id === 'acc_cash') continue;
       const accDigits = (acc.number || '').replace(/\D/g, '');
       const matchNumber =
-        accDigits.length >= 3 &&
-        (accDigits.endsWith(last3or4) || last3or4.endsWith(accDigits));
+        accDigits.length >= 2 &&
+        (accDigits.endsWith(lastDigits) || lastDigits.endsWith(accDigits));
 
       // Match aliases
       const matchAlias =
         Array.isArray(acc.aliases) &&
         acc.aliases.some((alias) => {
           const aDigits = String(alias).replace(/\D/g, '');
-          return aDigits && (aDigits.endsWith(last3or4) || last3or4.endsWith(aDigits));
+          return aDigits && (aDigits.endsWith(lastDigits) || lastDigits.endsWith(aDigits));
         });
 
       if (matchNumber || matchAlias) {
@@ -365,9 +368,12 @@ export function resolveAccountInfo(text, availableAccounts = []) {
     }
   }
 
-  // 5. Try to match an existing account by bank name and category
-  if (detectedBank) {
+  // 5. Try to match an existing account by bank name and category ONLY IF SMS had NO digits!
+  // If the SMS specified account digits (e.g. 59) and they didn't match any existing account,
+  // we MUST NOT hijack an existing account of the same bank with different digits (e.g. 4723)!
+  if (detectedBank && digits.length < 2) {
     for (const acc of availableAccounts) {
+      if (acc.id === 'acc_reminders' || acc.id === 'acc_cash') continue;
       const accNameLower = (acc.name || '').toLowerCase();
       const matchCat = !acc.ledgerCategory || acc.ledgerCategory === ledgerCategory;
       if (detectedBank.patterns.some((p) => p.test(accNameLower)) && matchCat) {
@@ -384,11 +390,12 @@ export function resolveAccountInfo(text, availableAccounts = []) {
   }
 
   // 5a. If no digits and no bank detected, fallback to existing primary account if available
-  if (!detectedBank && digits.length < 3 && availableAccounts.length > 0) {
+  if (!detectedBank && digits.length < 2 && availableAccounts.length > 0) {
     const primary =
-      availableAccounts.find((a) => a.id === 'acc_primary' || a.id === 'acc_cash' || a.ledgerCategory === 'debit') ||
+      availableAccounts.find((a) => a.id === 'acc_cash' || a.ledgerCategory === 'cash') ||
+      availableAccounts.find((a) => a.ledgerCategory === 'debit') ||
       availableAccounts[0];
-    if (primary) {
+    if (primary && primary.id !== 'acc_reminders') {
       return {
         accountId: primary.id,
         accountName: primary.name,
@@ -401,7 +408,7 @@ export function resolveAccountInfo(text, availableAccounts = []) {
   }
 
   // 6. If no existing account matches, AUTOMATICALLY DISCOVER & CREATE ONE!
-  const finalDigits = digits.length >= 3 ? digits.slice(-4) : '';
+  const finalDigits = digits.length >= 2 ? digits.slice(-4) : '';
   const accountIdentifier = finalDigits ? `**${finalDigits}` : (detectedBank ? `${detectedBank.shortName}` : 'Primary');
   const bankKey = detectedBank ? detectedBank.id : (isCredit ? 'credit_card' : 'bank');
   const newAccId = `acc_${bankKey}_${finalDigits || 'active'}`;
@@ -517,9 +524,17 @@ export function extractDate(text, rawTimestamp = null) {
     if (!isNaN(d.getTime())) return d.toISOString();
   }
 
-  // Pattern 1: DD-MMM-YY(YY) or DD-MM-YYYY (e.g. 10-11-2026 or 10-Nov-26 or 07Oct26)
-  const pattern1 = /\b(\d{1,2})[-/ ]?([A-Za-z]{3}|\d{1,2})[-/ ]?(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?)?/i;
-  const match1 = text.match(pattern1);
+  // Pre-strip amounts, UPI references, and numbers with currency symbols so amounts like "INR 4559.47" never confuse date parsing
+  const cleanDateText = text
+    .replace(/(?:Rs\.?|INR|₹)\s*[\d,]+(?:\.\d+)?/gi, '')
+    .replace(/UPI\/(?:DR|CR)\/\d+/gi, '');
+
+  // Pattern 1a: DD-MMM-YY(YY) with alphabetic month (e.g. 10-Nov-26, 10 Nov 2026, 07Oct26)
+  const patternAlphaMonth = /\b(\d{1,2})[-/ ]?([A-Za-z]{3})[-/ ]?(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?)?/i;
+  // Pattern 1b: DD-MM-YYYY or DD/MM/YYYY with numeric month (MUST have explicit delimiter - or / or space)
+  const patternNumMonth = /\b(\d{1,2})[-/ ](\d{1,2})[-/ ](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?)?/i;
+
+  const match1 = cleanDateText.match(patternAlphaMonth) || cleanDateText.match(patternNumMonth);
   if (match1) {
     try {
       const day = parseInt(match1[1], 10);
@@ -548,7 +563,8 @@ export function extractDate(text, rawTimestamp = null) {
         if (ampm.toUpperCase() === 'AM' && hour === 12) hour = 0;
       }
 
-      if (month !== undefined && month >= 0 && month <= 11) {
+      // Year sanity check: transaction must fall between 2020 and 2035
+      if (month !== undefined && month >= 0 && month <= 11 && day >= 1 && day <= 31 && year >= 2020 && year <= 2035) {
         const d = new Date(year, month, day, hour, min, sec);
         if (!isNaN(d.getTime())) return d.toISOString();
       }
@@ -581,14 +597,17 @@ export function extractCounterparty(text, type = 'expense') {
     }
   }
 
-  // 1. Credit card bill payments (e.g. 'received payment of ... credited to your SBI Credit Card')
+  // 1. Credit card bill payments (e.g. 'received payment of ... credited to your SBI Credit Card' or 'Payment of INR ... received on RBL Bank Credit Card XX59')
   if (
     /(?:payment.*?credited to your.*?credit card|received payment.*?credit card)/i.test(text) ||
+    /(?:payment\s+(?:of\s+.*?)?received\s+(?:on|towards|for|in)\s+.*credit\s+card)/i.test(text) ||
     /(?:credited\s+to\s+your\s+(?:[A-Za-z\s]+?Credit\s+Card))/i.test(text)
   ) {
-    const cardMatch = text.match(/(?:to\s+your\s+([A-Za-z\s]+?Credit\s+Card))/i);
-    const card = cardMatch ? cardMatch[1].trim() : 'Credit Card';
-    return `${card} Bill Payment`;
+    const cardMatch =
+      text.match(/(?:to\s+your\s+([A-Za-z\s]+?Credit\s+Card))/i) ||
+      text.match(/(?:received\s+on\s+([A-Za-z\s]+?Credit\s+Card))/i);
+    const card = cardMatch ? (cardMatch[1] || cardMatch[2] || '').trim() : 'Credit Card';
+    return `${card || 'Credit Card'} Bill Payment`;
   }
 
   // 2. '; <MERCHANT> credited' pattern (common in ICICI, Axis, HDFC UPI debits: '; BLINKIT credited')
@@ -894,6 +913,7 @@ export function parseSingleMessage(
     !isReminder &&
     !lower.includes('policy') &&
     (/(?:payment\s+received.*?credit\s+card|received payment.*?credit card)/i.test(lower) ||
+      /(?:payment\s+(?:of\s+.*?)?received\s+(?:on|towards|for|in)\s+.*credit\s+card)/i.test(lower) ||
       /(?:credited\s+to\s+your\s+(?:[a-z\s]+)?credit\s+card)/i.test(lower) ||
       /(?:payment\s+of.*?credit\s+card\s+bill)/i.test(lower) ||
       /(?:payment\s+received.*?via\s+bbps)/i.test(lower));
