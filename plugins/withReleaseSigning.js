@@ -25,10 +25,8 @@ function withReleaseSigning(config) {
                 keyAlias 'moneyplus'
                 keyPassword 'moneyplus123'
             }
-            enableV1Signing = true
-            enableV2Signing = true
-            enableV3Signing = true
-            enableV4Signing = false
+            v1SigningEnabled true
+            v2SigningEnabled true
         }`;
 
       // Insert release block inside signingConfigs
