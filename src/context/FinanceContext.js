@@ -892,6 +892,13 @@ export function FinanceProvider({ children }) {
     return sum + (acc.balance || 0);
   }, 0);
 
+  // Total Assets computation: All Banks, Wallets, and Cash (liquid assets, excluding credit card liabilities and virtual reminders)
+  const totalAssets = accounts.reduce((sum, acc) => {
+    if (acc.id === 'acc_reminders' || acc.isVirtual || acc.ledgerCategory === 'reminder') return sum;
+    if (acc.ledgerCategory === 'credit') return sum;
+    return sum + (acc.balance || 0);
+  }, 0);
+
   // In-Memory Indexed Views (Pre-computed for 0ms reactivity)
   const accountsById = {};
   accounts.forEach((a) => {
@@ -946,6 +953,7 @@ export function FinanceProvider({ children }) {
         transactions,
         categories,
         isLoading,
+        totalAssets,
         totalNetWorth,
         totalBankBalance,
         totalCreditDebt,

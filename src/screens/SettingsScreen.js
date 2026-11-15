@@ -28,6 +28,7 @@ export default function SettingsScreen({ navigation }) {
     accounts,
     transactions,
     categories,
+    totalAssets,
     totalNetWorth,
     exportBackupJson,
     importBackupJson,
@@ -485,8 +486,8 @@ export default function SettingsScreen({ navigation }) {
               <Text style={[styles.statDesc, { color: theme.textMuted }]}>Transactions</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statNum, { color: theme.text }]}>{formatCurrency(totalNetWorth)}</Text>
-              <Text style={[styles.statDesc, { color: theme.textMuted }]}>Net Worth</Text>
+              <Text style={[styles.statNum, { color: theme.text }]}>{formatCurrency(totalAssets !== undefined ? totalAssets : totalNetWorth)}</Text>
+              <Text style={[styles.statDesc, { color: theme.textMuted }]}>Total Assets</Text>
             </View>
           </View>
         </View>

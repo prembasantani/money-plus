@@ -1007,4 +1007,35 @@ if (parsedYear !== 2026) {
 }
 console.log('  ✅ Verified: XX59 auto-discovered as distinct account "RBL Bank Credit Card (**59)" (not hijacked by **4723), correctly tagged as INCOME (+) and year 2026.');
 
+// --- 40. Testing Total Assets Calculation (Excludes Credit Liabilities) ---
+console.log('\n--- 40. Testing Total Assets Calculation ---');
+const sampleAccountsForAssets = [
+  { id: 'acc_cash', name: 'Cash in Hand', balance: 5000, ledgerCategory: 'cash' },
+  { id: 'acc_hdfc', name: 'HDFC Bank', balance: 35000, ledgerCategory: 'debit' },
+  { id: 'acc_paytm', name: 'Paytm Wallet', balance: 1200, ledgerCategory: 'wallet' },
+  { id: 'acc_rbl_card', name: 'RBL Credit Card', balance: -8000, ledgerCategory: 'credit' },
+  { id: 'acc_reminders', name: 'Reminders', balance: 0, ledgerCategory: 'reminder', isVirtual: true },
+];
+
+const computedTotalAssets = sampleAccountsForAssets.reduce((sum, acc) => {
+  if (acc.id === 'acc_reminders' || acc.isVirtual || acc.ledgerCategory === 'reminder') return sum;
+  if (acc.ledgerCategory === 'credit') return sum;
+  return sum + (acc.balance || 0);
+}, 0);
+
+const computedNetWorth = sampleAccountsForAssets.reduce((sum, acc) => {
+  if (acc.id === 'acc_reminders' || acc.isVirtual || acc.ledgerCategory === 'reminder') return sum;
+  return sum + (acc.balance || 0);
+}, 0);
+
+if (computedTotalAssets !== 41200) {
+  console.error('❌ Failed: Expected totalAssets to be 41200, got:', computedTotalAssets);
+  process.exit(1);
+}
+if (computedNetWorth !== 33200) {
+  console.error('❌ Failed: Expected netWorth to be 33200, got:', computedNetWorth);
+  process.exit(1);
+}
+console.log('  ✅ Verified: Total Assets accurately computed (₹41,200) strictly from Banks, Wallets & Cash, leaving Credit Debt isolated.');
+
 console.log('\n✅ All Parser, Auto-Account Creation, Transfer Pairing, Loan/Ad Filtering, Reminders, Tax Export & Sorting Unit Tests Passed Successfully!\n');

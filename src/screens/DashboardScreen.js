@@ -34,6 +34,7 @@ export default function DashboardScreen({ navigation }) {
     transactions,
     categories,
     isLoading,
+    totalAssets,
     totalNetWorth,
     monthlyInflow,
     monthlyOutflow,
@@ -542,8 +543,9 @@ export default function DashboardScreen({ navigation }) {
         </View>
 
 
-        {/* Net Worth Card (Balance hidden by default as requested) */}
+        {/* Total Assets / Net Worth Card */}
         <NetWorthCard
+          totalAssets={totalAssets}
           totalNetWorth={totalNetWorth}
           monthlyInflow={monthlyInflow}
           monthlyOutflow={monthlyOutflow}

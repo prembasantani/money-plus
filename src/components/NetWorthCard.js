@@ -4,10 +4,26 @@ import { Ionicons } from '@expo/vector-icons';
 import { formatCurrency } from '../utils/formatters';
 import { useFinance } from '../context/FinanceContext';
 
-export default function NetWorthCard({ totalNetWorth, monthlyInflow, monthlyOutflow, onSyncPress, onAdjustPress, monthLabel }) {
+export default function NetWorthCard({
+  totalAssets,
+  totalNetWorth,
+  monthlyInflow,
+  monthlyOutflow,
+  onSyncPress,
+  onAdjustPress,
+  monthLabel,
+}) {
   const { theme, currentMonthName } = useFinance();
   const [showBalance, setShowBalance] = useState(false);
+  const [displayMode, setDisplayMode] = useState('assets'); // 'assets' | 'networth'
   const activeMonth = monthLabel || currentMonthName || '';
+
+  const activeAmount =
+    displayMode === 'assets'
+      ? (totalAssets !== undefined ? totalAssets : totalNetWorth)
+      : (totalNetWorth !== undefined ? totalNetWorth : totalAssets);
+
+  const titleText = displayMode === 'assets' ? 'TOTAL ASSETS' : 'TOTAL NET WORTH';
 
   return (
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.primary, borderWidth: 2 }]}>
@@ -16,11 +32,30 @@ export default function NetWorthCard({ totalNetWorth, monthlyInflow, monthlyOutf
 
       <View style={styles.headerRow}>
         <View style={styles.titleContainer}>
-          <Text style={[styles.subTitle, { color: theme.textMuted }]}>TOTAL NET WORTH</Text>
+          <TouchableOpacity
+            style={styles.titleSwitcherBtn}
+            onPress={() => setDisplayMode(displayMode === 'assets' ? 'networth' : 'assets')}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Switch display mode, currently ${titleText}`}
+          >
+            <Text style={[styles.subTitle, { color: theme.textMuted }]}>{titleText}</Text>
+            <Ionicons
+              name="swap-horizontal"
+              size={12}
+              color={theme.textMuted}
+              style={{ marginLeft: 5 }}
+            />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.eyeBtn}
             onPress={() => setShowBalance(!showBalance)}
             activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={showBalance ? 'Hide balance' : 'Show balance'}
           >
             <Ionicons
               name={showBalance ? 'eye-outline' : 'eye-off-outline'}
@@ -36,8 +71,8 @@ export default function NetWorthCard({ totalNetWorth, monthlyInflow, monthlyOutf
         </View>
       </View>
 
-      <Text style={[styles.balanceText, { color: totalNetWorth < 0 ? theme.danger : theme.text }]}>
-        {showBalance ? formatCurrency(totalNetWorth) : '••••••••'}
+      <Text style={[styles.balanceText, { color: activeAmount < 0 ? theme.danger : theme.text }]}>
+        {showBalance ? formatCurrency(activeAmount) : '••••••••'}
       </Text>
 
       {/* Monthly Inflow / Outflow Summary */}
@@ -148,6 +183,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  titleSwitcherBtn: {
     flexDirection: 'row',
     alignItems: 'center',
   },
